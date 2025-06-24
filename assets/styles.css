@@ -1,0 +1,73 @@
+/* ==========================================================
+   CORES BASE
+   ========================================================== */
+:root {
+  --roxo-fundo: rgba(98, 75, 175, 0.808);
+  --roxo-borda: rgba(98, 75, 175, 0.808);
+  --roxo-hover: scale(1.02);
+  --roxo-ativo: scale(0.98);
+  --texto-claro: white;
+}
+
+/* ==========================================================
+   BOTÕES GLOBAIS (st.button, st.download_button, etc)
+   ========================================================== */
+.stButton > button,
+[data-testid="stExpander"] button,
+div[data-testid="stFormSubmitButton"] button,
+section[data-testid="stFileUploadDropzone"] button,
+button[kind="secondary"] {
+  background-color: var(--roxo-fundo) !important;
+  color: var(--texto-claro) !important;
+  border: 2px solid var(--roxo-borda) !important;
+  border-radius: 8px !important;
+  padding: 10px 20px !important;
+  font-weight: 500 !important;
+  transition: transform 0.3s ease-in-out, background-color 0.3s ease-in-out !important;
+  cursor: pointer !important;
+}
+
+.stButton > button:hover,
+[data-testid="stExpander"] button:hover,
+div[data-testid="stFormSubmitButton"] button:hover,
+section[data-testid="stFileUploadDropzone"] button:hover,
+button[kind="secondary"]:hover {
+  transform: var(--roxo-hover) !important;
+}
+
+.stButton > button:active,
+[data-testid="stExpander"] button:active,
+div[data-testid="stFormSubmitButton"] button:active,
+section[data-testid="stFileUploadDropzone"] button:active,
+button[kind="secondary"]:active {
+  transform: var(--roxo-ativo) !important;
+}
+
+/* ==========================================================
+   EXPANDERS / CABEÇALHOS
+   ========================================================== */
+details summary {
+  background-color: var(--roxo-fundo) !important;
+  color: var(--texto-claro) !important;
+  border: 2px solid var(--roxo-borda) !important;
+  border-radius: 8px !important;
+  transition: background-color 0.4s ease-in-out, transform 0.4s ease-in-out !important;
+  cursor: pointer !important;
+}
+
+details[open] summary {
+  border: none !important;
+  border-bottom: 2px solid var(--roxo-borda) !important;
+  border-radius: 5.3px 5px 0 0 !important;
+}
+
+
+/* ==========================================================
+   EXPANDER / CORPO
+   ========================================================== */
+
+   details[open] {
+  border: 2px solid var(--roxo-borda) !important;
+  border-radius: 8px !important;
+  transition: background-color 0.4s ease-in-out, transform 0.4s ease-in-out !important;
+}
