@@ -5,8 +5,9 @@
 import streamlit as st
 import pandas as pd
 
-from pathlib import Path
-from utils.design import load_css
+from pathlib        import Path
+from utils.design   import load_css
+from io             import BytesIO
 
 # CUSTOM FUNCTIONS ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -197,7 +198,7 @@ if "processed_files" not in st.session_state:
 # Upload múltiplo de arquivos CSV
 uploaded_files = st.file_uploader(
     "Carregue um ou mais bancos de dados (.csv):",
-    type="csv",
+    type=["csv", "xls", "xlsx"],
     accept_multiple_files=True
 )
 
@@ -207,11 +208,25 @@ st.write("### 🗃️ Dataframes disponíveis:")
 if uploaded_files:
     for file in uploaded_files:
         try:
-            df = pd.read_csv(file)
-            name = Path(file.name).stem  # nome sem extensão
-            if name not in st.session_state.processed_files:
-                st.session_state.dataframes[name] = df
-                st.session_state.processed_files.add(name)
+            name = Path(file.name).stem  # Nome base sem extensão
+            suffix = Path(file.name).suffix.lower()
+
+            if name in st.session_state.processed_files:
+                continue
+
+            # Lê conforme o tipo do arquivo
+            if suffix == ".csv":
+                df = pd.read_csv(file)
+            elif suffix in [".xls", ".xlsx"]:
+                df = pd.read_excel(BytesIO(file.read()))  # Leitura segura para arquivos binários
+            else:
+                st.warning(f"Tipo de arquivo não suportado: {file.name}")
+                continue
+
+            # Salva no session_state
+            st.session_state.dataframes[name] = df
+            st.session_state.processed_files.add(name)
+
         except Exception as e:
             st.error(f"Erro ao carregar '{file.name}': {e}")
 
