@@ -69,6 +69,8 @@ def batch_map_categorical_values(df_key_input="raw_df", df_key_output="numeric_d
                 value_map[val] = st.number_input(
                     f"'{val}' →", step=1, format="%d", key=f"map_{val}"
                 )
+
+            placeholder_map = st.empty()
             submitted = st.form_submit_button("🧭 Aplicar Mapeamento", use_container_width=True)
 
         # Aplica o mapeamento após envio.
@@ -82,7 +84,7 @@ def batch_map_categorical_values(df_key_input="raw_df", df_key_output="numeric_d
             if df_key_input == df_key_output == "__temp_df_for_mapping__":
                 st.session_state.dataframes[df_name] = df_original
 
-            st.success("Mapeamento aplicado com sucesso!")
+            placeholder_map.success("Mapeamento aplicado com sucesso!")
             st.subheader("Prévia dos dados transformados")
             st.dataframe(df_original[selected_columns].head())
 
@@ -181,10 +183,16 @@ def describe_numeric_column(df: pd.DataFrame, df_name="selected_df_name"):
     ax.set_facecolor(dark_bg)
 
     if plot_type == "Histograma":
-        ax.hist(col_data_clean, bins=20, color=purple, edgecolor=white)
-        ax.set_title(f"Histograma de {selected_col}", color=white)
-        ax.set_xlabel(selected_col, color=white)
-        ax.set_ylabel("Frequência", color=white)
+            counts, bins, patches = ax.hist(col_data_clean, bins=20, color=purple, edgecolor=white)
+            ax.set_title(f"Histograma de {selected_col}", color=white)
+            ax.set_xlabel(selected_col, color=white)
+            ax.set_ylabel("Frequência", color=white)
+            ax.tick_params(colors=white)
+            # Anota frequências em cada barra
+            for rect, count in zip(patches, counts):
+                height = rect.get_height()
+                ax.text(rect.get_x() + rect.get_width() / 2, height, int(count),
+                        ha='center', va='bottom', color=white)
 
     elif plot_type == "Boxplot":
         ax.boxplot(
@@ -310,6 +318,83 @@ num_rows = st.number_input(
 df = st.session_state.dataframes[selected_df_name]
 st.write(f"Visualizando as primeiras {num_rows} linhas de **{selected_df_name}**:")
 st.dataframe(df.head(num_rows), use_container_width=True)
+
+
+
+
+# —— escolha a ação FORA do form —— 
+ação = st.radio(
+    "O que você quer remover?",
+    ("Linhas", "Colunas"),
+    horizontal=True,
+    key="acao_remocao"
+)
+
+# —— formulário de remoção —— 
+with st.form("form_transformacoes"):
+    st.markdown("#### Transformações no DataFrame")
+
+    if ação == "Linhas":
+        # limpa seleções antigas de colunas, se houver
+        st.session_state.pop("sel_colunas", None)
+        selec = st.multiselect(
+            "Selecione os índices das linhas a excluir:",
+            df.index.tolist(),
+            key="sel_indices"
+        )
+    else:
+        # limpa seleções antigas de linhas, se houver
+        st.session_state.pop("sel_indices", None)
+        selec = st.multiselect(
+            "Selecione as colunas a excluir:",
+            df.columns.tolist(),
+            key="sel_colunas"
+        )
+
+    # placeholder DENTRO do form, logo antes do botão  
+    placeholder_remove = st.empty()
+
+    aplicar = st.form_submit_button("🗑️ Aplicar Remoção", use_container_width=True)
+
+    if aplicar:
+        if not selec:
+            placeholder_remove.warning(
+                f"Nenhuma {('linha' if ação=='Linhas' else 'coluna')} selecionada."
+            )
+        else:
+            # aplica remoção
+            if ação == "Linhas":
+                df.drop(index=selec, inplace=True)
+                df.reset_index(drop=True, inplace=True)
+            else:
+                df.drop(columns=selec, inplace=True)
+
+            # persiste no session_state  
+            st.session_state.dataframes[selected_df_name] = df
+
+            # feedback visual  
+            placeholder_remove.success(
+                f"{len(selec)} {('linha' if ação=='Linhas' else 'coluna')} removida(s) com sucesso!"
+            )
+
+            # prepara CSV para download  
+            st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
+
+# —— fora do form: botão de download —— 
+if st.session_state.get("csv_transformado"):
+    st.download_button(
+        label="📥 Baixar CSV transformado",
+        data=st.session_state["csv_transformado"],
+        file_name=f"{selected_df_name}_transformado.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
+
+
+
+
+
+
 
 # Executa o mapeamento categórico em lote e sobrescreve o dataframe original
 st.session_state["__temp_df_for_mapping__"] = df.copy()

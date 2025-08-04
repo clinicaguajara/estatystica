@@ -118,48 +118,39 @@ def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
                 columns=[f"Fator {i+1}" for i in range(n_fatores)]
             )
         )
+
+    # === PCA ===
     elif metodo == "Componentes Principais (PCA)":
         pca = PCA()
-        components = pca.fit_transform(df_target)
-        # Scree Plot (PCA)
-        explained = pca.explained_variance_ratio_
-        st.caption("""
-        A Análise de Componentes Principais (PCA) é uma técnica de redução de dimensionalidade que transforma um conjunto de variáveis correlacionadas em um novo conjunto de componentes ortogonais (não correlacionados),
-        ordenados pela quantidade de variância explicada. Diferente da EFA, a PCA não busca descobrir fatores latentes, mas sim condensar a informação contida nos dados originais, 
-        preservando o máximo possível da variabilidade total em menos dimensões. É útil para simplificação de dados e visualizações.
-        """)
+        explained = pca.fit(df_target).explained_variance_ratio_
+
+        st.caption(
+            "A PCA reduz dimensionalidade transformando variáveis correlacionadas em "
+            "componentes ortogonais, ordenados por variância explicada."
+        )
         st.markdown("##### 🔍 Escolha o número de componentes principais")
         st.caption("Visualize a variância explicada e selecione quantos componentes manter.")
 
         fig_pca, ax_pca = plt.subplots(facecolor=dark_bg)
         ax_pca.set_facecolor(dark_bg)
-
-        ax_pca.plot(range(1, len(explained) + 1), explained, marker="o", linestyle="-", color=purple)
+        ax_pca.plot(range(1, len(explained) + 1), explained,
+                    marker="o", linestyle="-", color=purple)
         ax_pca.set_title("Scree Plot (PCA)", color=white)
         ax_pca.set_xlabel("Componente", color=white)
         ax_pca.set_ylabel("Variância Explicada", color=white)
-        
-        ax.axhline(1, color='red', linestyle='--', linewidth=1.5)
-
         ax_pca.tick_params(colors=white)
         for spine in ax_pca.spines.values():
             spine.set_edgecolor(white)
-
         plt.tight_layout()
         st.pyplot(fig_pca)
 
-        n_components = st.slider("Número de componentes", min_value=1, max_value=len(cols), value=1, step=1, key="slider_n_pcs")
-
+        n_components = st.slider("Número de componentes", 1, len(explained), 1, key="slider_n_pcs")
         pca_reduzido = PCA(n_components=n_components)
         pca_reduzido.fit(df_target)
+        comps = pd.DataFrame(pca_reduzido.components_.T, index=cols,
+                             columns=[f"PC{i+1}" for i in range(n_components)])
+        st.dataframe(comps)
 
-        st.dataframe(
-            pd.DataFrame(
-                pca_reduzido.components_.T,
-                index=cols,
-                columns=[f"PC{i+1}" for i in range(n_components)]
-            )
-        )
 
 
     elif metodo == "Fatorial Confirmatória (em breve)":
@@ -199,6 +190,60 @@ if selected_df_name not in st.session_state["escalas"]:
 
 escalas_dict = st.session_state["escalas"][selected_df_name]
 
+
+with st.expander("Adicionar +1 a itens (base zero)", expanded=False):
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.caption("Selecione os itens cujas respostas estão de 0 até n e que precisam de ajuste para começar em 1.")
+    
+    itens_ajuste = st.multiselect(
+        "Itens com base 0 que precisam de +1:",
+        options=df.columns.tolist(),  # ou selected_cols, ou todos_itens, dependendo do escopo
+        key="itens_ajuste_base_zero"
+    )
+
+    aplicar_ajuste = st.button("Aplicar +1 nos itens selecionados", key="btn_aplicar_ajuste")
+
+    if aplicar_ajuste:
+        for item in itens_ajuste:
+            df[item] = df[item] + 1
+        st.success(f"Ajuste aplicado: {len(itens_ajuste)} item(ns) foram incrementados em +1.")
+        st.session_state.dataframes[selected_df_name] = df
+
+
+with st.expander("Reverter itens (inversão de escala)", expanded=False):
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.caption("Selecione os itens cujos valores devem ser revertidos e defina a escala máxima de cada um.")
+    
+    itens_reversos = st.multiselect(
+        "Itens a serem revertidos:",
+        options=df.columns.tolist(),  # ou selected_cols / todos_itens
+        key="itens_para_reversao"
+    )
+
+    maximos = {}
+    if itens_reversos:
+        st.markdown("#### Defina o valor máximo da escala para cada item:")
+        for item in itens_reversos:
+            maximos[item] = st.number_input(
+                f"Máximo da escala para o item `{item}`:",
+                min_value=2,
+                max_value=10,
+                value=4,
+                step=1,
+                key=f"maximo_{item}"
+            )
+
+        aplicar_reversao = st.button("Aplicar reversão", key="btn_aplicar_reversao")
+
+        if aplicar_reversao:
+            for item, max_val in maximos.items():
+                df[item] = (max_val + 1) - df[item]
+            st.success(f"Reversão aplicada: {len(maximos)} item(ns) foram invertidos.")
+            st.session_state.dataframes[selected_df_name] = df
+
+
 # ───────────────────────────────────────────────────────────
 # SEÇÃO 1 — CRIAR NOVA ESCALA (agora com st.form)
 # ───────────────────────────────────────────────────────────
@@ -207,6 +252,9 @@ st.subheader("Criar uma nova escala")
 with st.form("form_criar_escala"):
     selected_cols = st.multiselect("Itens para compor a escala", num_cols, key="escala_itens")
     scale_name = st.text_input("Nome da nova escala (ex: BIS_Total)", key="escala_nome")
+    
+    placeholder_scales = st.empty()
+    
     submitted = st.form_submit_button("Criar escala", use_container_width=True)
 
     if submitted:
@@ -224,7 +272,42 @@ with st.form("form_criar_escala"):
                 "fatores": {}
             }
             st.session_state.dataframes[selected_df_name] = df
-            st.success(f"Escala '{scale_name}' criada com sucesso.")
+            placeholder_scales.success(f"Escala '{scale_name}' criada com sucesso.")
+
+
+# ───────────────────────────────────────────────────────────
+# SEÇÃO 3 — DEFINIR FATORES EM UMA ESCALA
+# ───────────────────────────────────────────────────────────
+if escalas_dict:
+    st.subheader("Definir fatores")
+    escala_selecionada = st.selectbox("Escolha a escala-alvo", list(escalas_dict.keys()), key="escala_fator")
+    escala_data = escalas_dict[escala_selecionada]
+    todos_itens = escala_data["itens"]
+    fatores_atuais = escala_data.get("fatores", {})
+
+    with st.form("form_fator"):
+        nome_fator = st.text_input("Nome do novo fator")
+        itens_fator = st.multiselect("Itens que compõem este fator", todos_itens)
+
+        placehold_add_factor = st.empty()
+
+        criar_fator = st.form_submit_button("Adicionar fator", use_container_width=True)
+    
+    if criar_fator:
+        if not nome_fator or not itens_fator:
+            st.error("Preencha o nome e selecione pelo menos um item.")
+        else:
+            valores_fator = df[itens_fator].sum(axis=1).tolist()
+            escala_data["fatores"][nome_fator] = {
+                "itens": itens_fator,
+                "valores": valores_fator
+            }
+            # Adiciona a nova coluna no dataframe
+            nome_coluna = f"{escala_selecionada}_{nome_fator}"
+            df[nome_coluna] = valores_fator
+            st.session_state.dataframes[selected_df_name] = df
+            placehold_add_factor.success(f"Fator '{nome_fator}' adicionado à escala '{escala_selecionada}'.")
+
 
 # ───────────────────────────────────────────────────────────
 # SEÇÃO 4 — VISUALIZAR ESCALAS E FATORES
@@ -235,36 +318,29 @@ for nome, dados in escalas_dict.items():
     st.line_chart(dados["valores"])
 
     fatores = dados.get("fatores", {})
+
     if fatores:
         st.markdown("#### 📚 Fatores:")
-        for fator_nome, fator_info in fatores.items():
-            st.markdown(f"**{fator_nome}** → `{', '.join(fator_info['itens'])}`")
-            st.line_chart(fator_info["valores"])
+        for fator_nome, fator_info in list(fatores.items()):
+            with st.expander(f"{fator_nome}", expanded=False):
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown(f"**Itens:** `{', '.join(fator_info['itens'])}`")
+                st.line_chart(fator_info["valores"])
 
-# ───────────────────────────────────────────────────────────
-# SEÇÃO 3 — DEFINIR FATORES EM UMA ESCALA
-# ───────────────────────────────────────────────────────────
-if escalas_dict:
-    st.subheader("Definir fatores para uma escala")
-    escala_selecionada = st.selectbox("Escolha a escala-alvo", list(escalas_dict.keys()), key="escala_fator")
-    escala_data = escalas_dict[escala_selecionada]
-    todos_itens = escala_data["itens"]
-    fatores_atuais = escala_data.get("fatores", {})
+                delete = st.button(
+                    f"🗑️ Deletar fator",
+                    key=f"delete_fator_{nome}_{fator_nome}",
+                    use_container_width=True
+                )
 
-    with st.form("form_fator"):
-        nome_fator = st.text_input("Nome do novo fator")
-        itens_fator = st.multiselect("Itens que compõem este fator", todos_itens)
-        criar_fator = st.form_submit_button("Adicionar fator", use_container_width=True)
-    if criar_fator:
-        if not nome_fator or not itens_fator:
-            st.error("Preencha o nome e selecione pelo menos um item.")
-        else:
-            valores_fator = df[itens_fator].sum(axis=1).tolist()
-            escala_data["fatores"][nome_fator] = {
-                "itens": itens_fator,
-                "valores": valores_fator
-            }
-            escalas_dict[escala_selecionada] = escala_data
-            st.success(f"Fator '{nome_fator}' adicionado à escala '{escala_selecionada}'.")
+                if delete:
+                    del fatores[fator_nome]
+                    col_to_drop = f"{nome}_{fator_nome}"
+                    if col_to_drop in df.columns:
+                        df.drop(columns=[col_to_drop], inplace=True)
+                    st.session_state.dataframes[selected_df_name] = df
+                    st.rerun()
+
 
 render_psychometric_properties(df, escalas_dict)
