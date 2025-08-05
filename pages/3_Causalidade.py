@@ -313,26 +313,33 @@ def linear_regression_analysis(df: pd.DataFrame):
             use_container_width=True
         )
 
-
-# BODY ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# PAGE 3 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 load_css()
 st.title("Estatística Inferencial")
 st.caption("Regressões, testes de hipótese e magnitude.")
 
+# Verify dataframe
 if "dataframes" not in st.session_state or not st.session_state.dataframes:
-    st.warning("Nenhum dataframe disponível. Volte à página inicial e carregue um arquivo.")
+    st.warning("Este dataframe não possui colunas numéricas.")
     st.stop()
 
 df_names = list(st.session_state.dataframes.keys())
+
 selected_df_name = st.selectbox("Selecione o dataframe para análise:", df_names)
 df = st.session_state.dataframes[selected_df_name]
 st.write(f"**Dimensões:** {df.shape[0]} × {df.shape[1]}")
 
+num_cols = df.select_dtypes(include="number").columns.tolist()
+if not num_cols:
+    st.warning("Este dataframe não possui colunas numéricas.")
+    st.stop()
+
 st.divider()
 
-# Executa os módulos de inferência
+# BODY ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
+# Executa os módulos de inferência
 st.write("### Gráfico de dispersão")
 st.caption("Visualize a relação entre duas variáveis numéricas em um plano cartesiano (scatter plot).")
 scatter_visualizer(df)

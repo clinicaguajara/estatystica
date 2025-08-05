@@ -13,11 +13,9 @@ def test_normality(df: pd.DataFrame):
     Executa testes de normalidade sobre variáveis numéricas selecionadas.
     """
 
-    st.subheader("Teste de Normalidade")
-
     numeric_cols = df.select_dtypes(include="number").columns.tolist()
     if not numeric_cols:
-        st.warning("Não há colunas numéricas no dataframe.")
+        st.error("Não há colunas numéricas no dataframe.")
         return
 
     selected_cols = st.multiselect("Selecione colunas para testar:", numeric_cols)
@@ -91,7 +89,7 @@ def describe_numeric_column(df: pd.DataFrame, df_name="selected_df_name"):
     # Verifica e seleciona coluna numérica
     numeric_cols = df.select_dtypes(include="number").columns.tolist()
     if not numeric_cols:
-        st.warning("Nenhuma coluna numérica detectada.")
+        st.warning("Este dataframe não possui colunas numéricas.")
         return
 
     selected_col = st.selectbox(f"Selecione uma coluna numérica para descrever em **{df_name}**:", numeric_cols)
@@ -261,9 +259,9 @@ load_css()
 st.title("Estatísticas Descritivas")
 st.caption("Visualização, tendência central e dispersão de dataframes.")
 
-# Verificação da presença de dataframes
+# Verify dataframe
 if "dataframes" not in st.session_state or not st.session_state.dataframes:
-    st.warning("Volte à página inicial e carregue um arquivo .csv para começar.")
+    st.warning("Nenhum dataframe carregado.")
     st.stop()
 
 # Seleção do dataframe para visualização
@@ -302,5 +300,13 @@ st.dataframe(df.head(num_rows), use_container_width=True)
 
 describe_numeric_column(df, selected_df_name)
 
-test_normality(df)
+numeric_cols = df.select_dtypes(include="number").columns.tolist()
+if not numeric_cols:
+        st.stop()
 
+st.write("### Normalidade")
+
+with st.expander("Executar testes de normalidade"):
+    st.markdown("<br>", unsafe_allow_html=True)
+    test_normality(df)
+    st.markdown("<br>", unsafe_allow_html=True)

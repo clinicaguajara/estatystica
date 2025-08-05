@@ -1,13 +1,14 @@
-# ───────────────────────────────────────────────────────────
-# REQUIRED IMPORTS
-# ───────────────────────────────────────────────────────────
-import streamlit as st
-import pandas as pd
-from factor_analyzer import FactorAnalyzer, calculate_kmo, calculate_bartlett_sphericity
-from sklearn.decomposition import PCA
-from utils.design import load_css
+# REQUIRED IMPORTS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+import streamlit         as st
+import pandas            as pd
 import matplotlib.pyplot as plt
 
+from sklearn.decomposition import PCA
+from factor_analyzer       import FactorAnalyzer, calculate_kmo, calculate_bartlett_sphericity
+from utils.design          import load_css
+
+# CUSTOM FUNCTIONS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 def cronbach_alpha(df):
     """Calcula o alfa de Cronbach para um subconjunto de colunas numéricas."""
@@ -154,34 +155,31 @@ def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
     elif metodo == "Fatorial Confirmatória (em breve)":
         st.info("Este módulo será integrado futuramente com modelagem SEM.")
 
-# ───────────────────────────────────────────────────────────
-# INICIALIZAÇÃO
-# ───────────────────────────────────────────────────────────
+# PAGE 4 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
 load_css()
 st.title("Psicometria")
 st.caption("Construção e validação de escalas.")
 
-# ───────────────────────────────────────────────────────────
-# VERIFICAÇÃO DE DATAFRAMES
-# ───────────────────────────────────────────────────────────
+# Verify dataframe
 if "dataframes" not in st.session_state or not st.session_state.dataframes:
-    st.warning("Você precisa carregar um arquivo .csv na Página Inicial.")
+    st.warning("Nenhum dataframe carreagdo.")
     st.stop()
 
 df_names = list(st.session_state.dataframes.keys())
 selected_df_name = st.selectbox("Selecione o dataframe para análise:", df_names)
 df = st.session_state.dataframes[selected_df_name]
+st.write(f"**Dimensões:** {df.shape[0]} × {df.shape[1]}")
 
 num_cols = df.select_dtypes(include="number").columns.tolist()
 if not num_cols:
-    st.warning("O dataframe selecionado não contém colunas numéricas.")
+    st.warning("Este dataframe não possui colunas numéricas.")
     st.stop()
 
 st.divider()
 
-# ───────────────────────────────────────────────────────────
-# INICIALIZAÇÃO DAS ESCALAS POR DATAFRAME
-# ───────────────────────────────────────────────────────────
+# BODY ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
 if "escalas" not in st.session_state:
     st.session_state["escalas"] = {}
 

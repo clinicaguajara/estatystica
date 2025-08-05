@@ -1,11 +1,19 @@
-# PAGE 4 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# REQUIRED IMPORTS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
 import streamlit as st
-import pandas as pd
+import pandas    as pd
+
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from boruta import BorutaPy
+from boruta           import BorutaPy
+from utils.design     import load_css
+
+# PAGE 5 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="Seleção de Variáveis - Boruta", layout="centered")
-st.title("Seleção de Variáveis com Boruta")
+
+load_css()
+
+st.title("Boruta")
 
 st.caption("""
 O algoritmo **Boruta** é uma técnica robusta de *feature selection* baseada em florestas aleatórias.
@@ -13,14 +21,26 @@ Ele compara a importância das variáveis reais com versões aleatórias (chamad
 Ideal para reduzir dimensionalidade sem perder variáveis relevantes para o modelo.
 """)
 
-# Verifica se há dataframes carregados
+# Verify dataframe
 if "dataframes" not in st.session_state or not st.session_state.dataframes:
-    st.warning("Nenhum dataframe carregado.")
+    st.warning("Este dataframe não possui colunas numéricas.")
     st.stop()
 
 # Seleção do dataframe
 df_name = st.selectbox("Selecione o dataframe para análise:", list(st.session_state.dataframes.keys()))
 df = st.session_state.dataframes[df_name]
+st.write(f"**Dimensões:** {df.shape[0]} × {df.shape[1]}")
+
+st.divider()
+
+# BODY ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+num_cols = df.select_dtypes(include="number").columns.tolist()
+if not num_cols:
+    st.warning("Este dataframe não possui colunas numéricas.")
+    st.stop()
+
+st.write("### Seleção de variáveis")
 
 # Seleção da variável alvo
 target_column = st.selectbox("Selecione a variável alvo (y):", options=df.select_dtypes(include='number').columns)

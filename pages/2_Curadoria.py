@@ -32,7 +32,7 @@ def remove_rows_with_repeated_value(df: pd.DataFrame, df_name: str):
 
     numeric_cols = df.select_dtypes(include="number").columns.tolist()
     if not numeric_cols:
-        st.info("Este dataframe não possui colunas numéricas elegíveis.")
+        st.warning("Este dataframe não possui colunas numéricas.")
         return
 
     selected_cols = st.multiselect("Selecione os itens para verificar:", numeric_cols, key="cols_valor_check")
@@ -106,7 +106,7 @@ def delete_rows_or_columns(df: pd.DataFrame, df_name: str) -> pd.DataFrame:
         )
 
     # Botão de execução
-    if st.button("🗑️ Aplicar Remoção", use_container_width=True, key=f"btn_remove_{df_name}"):
+    if st.button("🧹 Limpar", use_container_width=True, key=f"btn_remove_{df_name}"):
         # nenhum item selecionado
         if not to_remove:
             placeholder.info(
@@ -241,7 +241,7 @@ def conditional_row_removal(df: pd.DataFrame, df_name: str):
 
     numeric_cols = df.select_dtypes(include="number").columns.tolist()
     if not numeric_cols:
-        st.info("Não há colunas numéricas disponíveis.")
+        st.warning("Este dataframe não possui colunas numéricas.")
         return
 
     col_cond = st.selectbox("Coluna de condição:", numeric_cols, key="cond_col_global")
@@ -249,7 +249,7 @@ def conditional_row_removal(df: pd.DataFrame, df_name: str):
     valor = st.number_input("Valor de comparação:", key="cond_val_global")
     placeholder = st.empty()
 
-    if st.button("🧹 Remover linhas que satisfaçam a condição", use_container_width=True, key="btn_remocao_cond_global"):
+    if st.button("🧹 Limpar", use_container_width=True, key="btn_remocao_cond_global"):
         try:
             cond = f"`{col_cond}` {operador} {valor}"
             indices = df.query(cond).index.tolist()
@@ -264,8 +264,7 @@ def conditional_row_removal(df: pd.DataFrame, df_name: str):
         except Exception as e:
             placeholder.error(f"Erro: {e}")
 
-
-# HEADER ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# PAGE 2 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 load_css()
 
@@ -275,14 +274,15 @@ st.caption("Remova outliers e aplique transformações nos dataframes.")
 
 # Verificação da presença de dataframes
 if "dataframes" not in st.session_state or not st.session_state.dataframes:
-    st.warning("Volte à página inicial e carregue um arquivo .csv para começar.")
+    st.warning("Nenhum dataframe carregado.")
     st.stop()
 
 # Seleção do dataframe para visualização
 df_names = list(st.session_state.dataframes.keys())
 
-if not df_names:
-    st.warning("Nenhum dataframe disponível.")
+# Verify dataframe
+if "dataframes" not in st.session_state or not st.session_state.dataframes:
+    st.warning("Este dataframe não possui colunas numéricas.")
     st.stop()
 
 selected_df_name = st.session_state.get("selected_df_name")
@@ -292,7 +292,6 @@ if selected_df_name not in df_names:
 
 
 selected_df_name = st.selectbox("Selecione o dataframe para análise:", df_names, index=df_names.index(selected_df_name))
-
 df = st.session_state.dataframes[selected_df_name]
 st.write(f"**Dimensões:** {df.shape[0]} × {df.shape[1]}")
 
