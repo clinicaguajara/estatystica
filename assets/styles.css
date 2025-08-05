@@ -8,6 +8,15 @@
   --roxo-ativo: scale(0.98);
   --texto-claro: white;
 }
+span.verde-magico {
+  color: #00F5A0 !important; /* Verde claro e vibrante */
+  font-weight: bold;
+}
+
+span.amarelo-brasil {
+  color: #FFD700 !important; /* Amarelo ouro (vibrante e tradicional) */
+  font-weight: bold;
+}
 
 /* ==========================================================
    BOTÕES GLOBAIS (st.button, st.download_button, etc)

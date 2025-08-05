@@ -1,101 +1,59 @@
 # REQUIRED IMPORTS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-import io
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import scipy.stats as stats
 
 from utils.design import load_css
 
 # CUSTOM FUNCTIONS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-def batch_map_categorical_values(df_key_input="raw_df", df_key_output="numeric_df", df_name="selected_df_name"):
+def test_normality(df: pd.DataFrame):
     """
-    <docstrings>
-    Aplica um mapeamento numérico compartilhado a múltiplas colunas categóricas de um dataframe salvo no session_state.
-
-    Args:
-        df_key_input (str): Nome da chave no session_state contendo o dataframe original.
-        df_key_output (str): Nome da chave onde o dataframe transformado será salvo.
-        df_name (str): Nome do dataframe selecionado.
-
-    Calls:
-        st.session_state.get(): Método para acessar valores salvos no estado | instanciado por st.session_state.
-        st.multiselect(): Componente de seleção múltipla para colunas | instanciado por st.
-        st.number_input(): Entrada numérica para mapeamento | instanciado por st.
-        st.form_submit_button(): Botão de envio do formulário | instanciado por st.
-        st.download_button(): Geração de botão para exportar CSV | instanciado por st.
-
-    Raises:
-        st.warning: Caso o dataframe de entrada não exista ou não tenha colunas categóricas.
+    Executa testes de normalidade sobre variáveis numéricas selecionadas.
     """
-    
-    # Título e instruções.
-    st.header("Mapeamento em Lote")
-    st.caption("Converta múltiplas colunas categóricas para valores numéricos com o mesmo esquema de mapeamento.")
 
-    # Verifica se o dataframe de entrada existe.
-    if df_key_input not in st.session_state:
-        st.warning("Nenhum dataframe foi carregado ainda.")
-        st.stop()
+    st.subheader("Teste de Normalidade")
 
-    # Carrega o dataframe.
-    df_original = st.session_state[df_key_input].copy()
+    numeric_cols = df.select_dtypes(include="number").columns.tolist()
+    if not numeric_cols:
+        st.warning("Não há colunas numéricas no dataframe.")
+        return
 
-    # Filtra colunas categóricas.
-    categorical_columns = df_original.select_dtypes(include="object").columns.tolist()
-    if not categorical_columns:
-        st.info("Nenhuma coluna categórica encontrada.")
-        st.stop()
-
-    # Seleciona colunas a serem mapeadas.
-    selected_columns = st.multiselect(
-        f"Selecione as colunas que você deseja mapear em **{df_name}**:",
-        categorical_columns
+    selected_cols = st.multiselect("Selecione colunas para testar:", numeric_cols)
+    test_options = st.multiselect(
+        "Escolha os testes a serem aplicados:",
+        ["Shapiro-Wilk", "Kolmogorov-Smirnov", "D’Agostino-Pearson", "Anderson-Darling"]
     )
 
-    # Se houver colunas selecionadas, permite criar o dicionário de mapeamento.
-    if selected_columns:
-        unique_values = set()
-        for col in selected_columns:
-            unique_values.update(df_original[col].dropna().unique().tolist())
+    if selected_cols and test_options:
+        for col in selected_cols:
+            col_data = df[col].dropna()
+            st.markdown(f"**📌 Coluna: `{col}`**")
 
-        unique_values = sorted(unique_values)
+            for test in test_options:
+                if test == "Shapiro-Wilk":
+                    stat, p = stats.shapiro(col_data)
+                    st.caption("Shapiro-Wilk: ideal para < 5000 amostras.")
+                elif test == "Kolmogorov-Smirnov":
+                    stat, p = stats.kstest(col_data, 'norm', args=(col_data.mean(), col_data.std()))
+                    st.caption("Kolmogorov-Smirnov: compara com normal padrão.")
+                elif test == "D’Agostino-Pearson":
+                    stat, p = stats.normaltest(col_data)
+                    st.caption("D’Agostino-Pearson: avalia simetria e curtose.")
+                elif test == "Anderson-Darling":
+                    result = stats.anderson(col_data, dist='norm')
+                    st.caption("Anderson-Darling: fornece estatística crítica.")
+                    st.write(f"Estatística: {result.statistic:.4f}")
+                    for i in range(len(result.critical_values)):
+                        st.write(f"Nível {result.significance_level[i]}% → valor crítico: {result.critical_values[i]}")
+                    continue
 
-        st.subheader("Defina o mapeamento numérico:")
-        with st.form("batch_mapping_form"):
-            value_map = {}
-            for val in unique_values:
-                value_map[val] = st.number_input(
-                    f"'{val}' →", step=1, format="%d", key=f"map_{val}"
-                )
-
-            placeholder_map = st.empty()
-            submitted = st.form_submit_button("🧭 Aplicar Mapeamento", use_container_width=True)
-
-        # Aplica o mapeamento após envio.
-        if submitted:
-            for col in selected_columns:
-                df_original[col] = df_original[col].map(value_map)
-
-            st.session_state[df_key_output] = df_original
-
-            # Substitui o dataframe original diretamente, se for cópia temporária.
-            if df_key_input == df_key_output == "__temp_df_for_mapping__":
-                st.session_state.dataframes[df_name] = df_original
-
-            placeholder_map.success("Mapeamento aplicado com sucesso!")
-            st.subheader("Prévia dos dados transformados")
-            st.dataframe(df_original[selected_columns].head())
-
-            # Botão para exportar.
-            st.download_button(
-                label="📥 Baixar CSV transformado",
-                data=df_original.to_csv(index=False).encode("utf-8"),
-                file_name="dados_transformados.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+                st.write(f"→ Estatística: `{stat:.4f}`, valor-p: `{p:.4g}`")
+                if p < 0.05:
+                    st.error("🚫 Rejeita normalidade (p < 0.05)")
+                else:
+                    st.success("✅ Distribuição compatível com normalidade (p ≥ 0.05)")
 
 def describe_numeric_column(df: pd.DataFrame, df_name="selected_df_name"):
     """
@@ -122,7 +80,12 @@ def describe_numeric_column(df: pd.DataFrame, df_name="selected_df_name"):
     import matplotlib.pyplot as plt
     import io
 
-    st.header("📊 Descrição por Coluna")
+    # Verificação de integridade antes da renderização
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty or df.shape[1] == 0:
+        st.warning(f"O dataframe '{df_name}' está vazio ou inválido.")
+        st.stop()
+
+    st.subheader("Descrição por coluna")
 
     # ───────────────────────────────────────────────────────
     # Verifica e seleciona coluna numérica
@@ -170,8 +133,7 @@ def describe_numeric_column(df: pd.DataFrame, df_name="selected_df_name"):
 
     # ───────────────────────────────────────────────────────
     # Visualização gráfica
-    st.subheader("Visualização Gráfica")
-    plot_type = st.radio("Escolha o tipo de gráfico:", ["Histograma", "Boxplot", "Curva de Densidade"], horizontal=True)
+    plot_type = st.radio("Escolha o tipo de gráfico:", [ "Curva de Densidade", "Histograma", "Boxplot"], horizontal=True)
 
     col_data_clean = col_data.dropna()
     dark_bg = "#0E1117"
@@ -181,18 +143,23 @@ def describe_numeric_column(df: pd.DataFrame, df_name="selected_df_name"):
     # Gráfico modo escuro
     fig, ax = plt.subplots(facecolor=dark_bg)
     ax.set_facecolor(dark_bg)
-
     if plot_type == "Histograma":
-            counts, bins, patches = ax.hist(col_data_clean, bins=20, color=purple, edgecolor=white)
+            # Frequência por valor único (exato, sem bins)
+            valores_unicos = sorted(col_data_clean.unique())
+            counts = col_data_clean.value_counts().sort_index()
+
+            bars = ax.bar(valores_unicos, counts, color=purple, edgecolor=white, width=0.6)
+
             ax.set_title(f"Histograma de {selected_col}", color=white)
             ax.set_xlabel(selected_col, color=white)
             ax.set_ylabel("Frequência", color=white)
             ax.tick_params(colors=white)
             # Anota frequências em cada barra
-            for rect, count in zip(patches, counts):
+            for rect in bars:
                 height = rect.get_height()
-                ax.text(rect.get_x() + rect.get_width() / 2, height, int(count),
+                ax.text(rect.get_x() + rect.get_width() / 2, height, int(height),
                         ha='center', va='bottom', color=white)
+
 
     elif plot_type == "Boxplot":
         ax.boxplot(
@@ -260,7 +227,7 @@ def describe_numeric_column(df: pd.DataFrame, df_name="selected_df_name"):
     col1, col2 = st.columns(2)
     with col1:
         st.download_button(
-            label="📥 Baixar Gráfico (Tema Escuro)",
+            label="📥 Download (tema escuro)",
             data=dark_buf,
             file_name=f"{selected_col}_{plot_type.lower().replace(' ', '_')}_dark.png",
             mime="image/png",
@@ -268,23 +235,23 @@ def describe_numeric_column(df: pd.DataFrame, df_name="selected_df_name"):
         )
     with col2:
         st.download_button(
-            label="📥 Baixar Gráfico (Tema Claro)",
+            label="📥 Download (tema claro)",
             data=light_buf,
             file_name=f"{selected_col}_{plot_type.lower().replace(' ', '_')}_light.png",
             mime="image/png",
             use_container_width=True
         )
     
+
     
     # Renderiza as tabelas
-    st.subheader("Tendência Central")
+    st.write("### Tendência central")
     st.caption("Métricas que resumem a localização dos dados na distribuição.")
     st.table(pd.DataFrame(tendencia_central.items(), columns=["Estatística", "Valor"]))
 
-    st.subheader("Dispersão e Forma")
+    st.write("### Dispersão e forma")
     st.caption("Indicadores de variabilidade, amplitude e o formato da distribuição.")
     st.table(pd.DataFrame(dispersao.items(), columns=["Estatística", "Valor"]))
-
 
 # PAGE 1 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -292,8 +259,7 @@ load_css()
 
 # Título e instruções iniciais
 st.title("Estatísticas Descritivas")
-st.subheader("Visualização, tendência central e dispersão das amostras")
-st.divider()
+st.caption("Visualização, tendência central e dispersão de dataframes.")
 
 # Verificação da presença de dataframes
 if "dataframes" not in st.session_state or not st.session_state.dataframes:
@@ -302,9 +268,25 @@ if "dataframes" not in st.session_state or not st.session_state.dataframes:
 
 # Seleção do dataframe para visualização
 df_names = list(st.session_state.dataframes.keys())
-selected_df_name = st.selectbox("Selecione o dataframe para análise:", df_names)
+
+if not df_names:
+    st.warning("Nenhum dataframe disponível.")
+    st.stop()
+
+selected_df_name = st.session_state.get("selected_df_name")
+
+if selected_df_name not in df_names:
+    selected_df_name = df_names[0]
+
+
+selected_df_name = st.selectbox("Selecione o dataframe para análise:", df_names, index=df_names.index(selected_df_name))
+df = st.session_state.dataframes[selected_df_name]
+st.write(f"**Dimensões:** {df.shape[0]} × {df.shape[1]}")
+
+st.divider()
 
 # Controle do número de linhas com incremento nativo
+st.write("### Inspeção visual")
 num_rows = st.number_input(
     "Número de linhas para inspeção visual:",
     min_value=5,
@@ -315,100 +297,10 @@ num_rows = st.number_input(
 )
 
 # Visualização do dataframe selecionado
-df = st.session_state.dataframes[selected_df_name]
 st.write(f"Visualizando as primeiras {num_rows} linhas de **{selected_df_name}**:")
 st.dataframe(df.head(num_rows), use_container_width=True)
 
-
-
-
-# —— escolha a ação FORA do form —— 
-ação = st.radio(
-    "O que você quer remover?",
-    ("Linhas", "Colunas"),
-    horizontal=True,
-    key="acao_remocao"
-)
-
-# —— formulário de remoção —— 
-with st.form("form_transformacoes"):
-    st.markdown("#### Transformações no DataFrame")
-
-    if ação == "Linhas":
-        # limpa seleções antigas de colunas, se houver
-        st.session_state.pop("sel_colunas", None)
-        selec = st.multiselect(
-            "Selecione os índices das linhas a excluir:",
-            df.index.tolist(),
-            key="sel_indices"
-        )
-    else:
-        # limpa seleções antigas de linhas, se houver
-        st.session_state.pop("sel_indices", None)
-        selec = st.multiselect(
-            "Selecione as colunas a excluir:",
-            df.columns.tolist(),
-            key="sel_colunas"
-        )
-
-    # placeholder DENTRO do form, logo antes do botão  
-    placeholder_remove = st.empty()
-
-    aplicar = st.form_submit_button("🗑️ Aplicar Remoção", use_container_width=True)
-
-    if aplicar:
-        if not selec:
-            placeholder_remove.warning(
-                f"Nenhuma {('linha' if ação=='Linhas' else 'coluna')} selecionada."
-            )
-        else:
-            # aplica remoção
-            if ação == "Linhas":
-                df.drop(index=selec, inplace=True)
-                df.reset_index(drop=True, inplace=True)
-            else:
-                df.drop(columns=selec, inplace=True)
-
-            # persiste no session_state  
-            st.session_state.dataframes[selected_df_name] = df
-
-            # feedback visual  
-            placeholder_remove.success(
-                f"{len(selec)} {('linha' if ação=='Linhas' else 'coluna')} removida(s) com sucesso!"
-            )
-
-            # prepara CSV para download  
-            st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
-
-# —— fora do form: botão de download —— 
-if st.session_state.get("csv_transformado"):
-    st.download_button(
-        label="📥 Baixar CSV transformado",
-        data=st.session_state["csv_transformado"],
-        file_name=f"{selected_df_name}_transformado.csv",
-        mime="text/csv",
-        use_container_width=True
-    )
-
-
-
-
-
-
-
-# Executa o mapeamento categórico em lote e sobrescreve o dataframe original
-st.session_state["__temp_df_for_mapping__"] = df.copy()
-
-batch_map_categorical_values(
-    df_key_input="__temp_df_for_mapping__",
-    df_key_output="__temp_df_for_mapping__",
-    df_name=selected_df_name
-)
-
-
 describe_numeric_column(df, selected_df_name)
 
+test_normality(df)
 
-st.markdown("<br>", unsafe_allow_html=True)
-
-st.markdown("<br>", unsafe_allow_html=True)

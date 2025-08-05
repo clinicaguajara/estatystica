@@ -9,8 +9,6 @@ from utils.design import load_css
 import matplotlib.pyplot as plt
 
 
-
-
 def cronbach_alpha(df):
     """Calcula o alfa de Cronbach para um subconjunto de colunas numéricas."""
     df_corr = df.dropna().astype(float)
@@ -160,9 +158,9 @@ def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
 # INICIALIZAÇÃO
 # ───────────────────────────────────────────────────────────
 load_css()
-st.title("Análise Fatorial")
-st.subheader("Construção e validação de escalas.")
-st.divider()
+st.title("Psicometria")
+st.caption("Construção e validação de escalas.")
+
 # ───────────────────────────────────────────────────────────
 # VERIFICAÇÃO DE DATAFRAMES
 # ───────────────────────────────────────────────────────────
@@ -179,6 +177,8 @@ if not num_cols:
     st.warning("O dataframe selecionado não contém colunas numéricas.")
     st.stop()
 
+st.divider()
+
 # ───────────────────────────────────────────────────────────
 # INICIALIZAÇÃO DAS ESCALAS POR DATAFRAME
 # ───────────────────────────────────────────────────────────
@@ -191,18 +191,18 @@ if selected_df_name not in st.session_state["escalas"]:
 escalas_dict = st.session_state["escalas"][selected_df_name]
 
 
-with st.expander("Adicionar +1 a itens (base zero)", expanded=False):
+with st.expander("Reescalar itens com base 0", expanded=False):
     
     st.markdown("<br>", unsafe_allow_html=True)
-    st.caption("Selecione os itens cujas respostas estão de 0 até n e que precisam de ajuste para começar em 1.")
+    st.caption("Nas escalas do tipo Likert, os valores atribuídos às alternativas representam postos ordinais, e não quantidades absolutas. Por isso, o uso do valor zero como uma das opções pode ser conceitualmente inadequado. Isso porque o zero carrega um significado intervalar — ou seja, indica ausência absoluta do fenômeno — enquanto as escalas de postos devem refletir apenas a intensidade relativa entre categorias. Ao utilizar zero, perde-se uma posição válida na escala, o que reduz o número efetivo de níveis de resposta e pode comprometer a lógica ordinal esperada. Por esse motivo, é comum reescalar de 1 em diante (por exemplo, 1 a 5) itens com base 0 para preservar a estrutura de postos e garantir que todas as categorias representem graus válidos de expressão do fenômeno.")
     
     itens_ajuste = st.multiselect(
-        "Itens com base 0 que precisam de +1:",
+        "Itens com base 0 que precisam ser reescalados:",
         options=df.columns.tolist(),  # ou selected_cols, ou todos_itens, dependendo do escopo
         key="itens_ajuste_base_zero"
     )
 
-    aplicar_ajuste = st.button("Aplicar +1 nos itens selecionados", key="btn_aplicar_ajuste")
+    aplicar_ajuste = st.button("Reescalar", use_container_width=True, key="btn_aplicar_ajuste")
 
     if aplicar_ajuste:
         for item in itens_ajuste:
@@ -211,7 +211,7 @@ with st.expander("Adicionar +1 a itens (base zero)", expanded=False):
         st.session_state.dataframes[selected_df_name] = df
 
 
-with st.expander("Reverter itens (inversão de escala)", expanded=False):
+with st.expander("Inversão de itens", expanded=False):
     
     st.markdown("<br>", unsafe_allow_html=True)
     st.caption("Selecione os itens cujos valores devem ser revertidos e defina a escala máxima de cada um.")
@@ -235,7 +235,7 @@ with st.expander("Reverter itens (inversão de escala)", expanded=False):
                 key=f"maximo_{item}"
             )
 
-        aplicar_reversao = st.button("Aplicar reversão", key="btn_aplicar_reversao")
+        aplicar_reversao = st.button("Reverter", use_container_width=True, key="btn_aplicar_reversao")
 
         if aplicar_reversao:
             for item, max_val in maximos.items():
@@ -247,7 +247,7 @@ with st.expander("Reverter itens (inversão de escala)", expanded=False):
 # ───────────────────────────────────────────────────────────
 # SEÇÃO 1 — CRIAR NOVA ESCALA (agora com st.form)
 # ───────────────────────────────────────────────────────────
-st.subheader("Criar uma nova escala")
+st.subheader("Criar escala a partir de um conjunto de itens")
 
 with st.form("form_criar_escala"):
     selected_cols = st.multiselect("Itens para compor a escala", num_cols, key="escala_itens")

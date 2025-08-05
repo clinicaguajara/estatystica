@@ -1,13 +1,12 @@
 
 # REQUIRED IMPORTS ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-#.\.venv\Scripts\activate
 
 import streamlit as st
 import pandas as pd
 
 from pathlib        import Path
-from utils.design   import load_css
 from io             import BytesIO
+from utils.design   import load_css
 
 # CUSTOM FUNCTIONS ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -20,9 +19,9 @@ def rename_dataframe_form(dataframes: dict):
 
         if submitted:
             if not new_name:
-                st.warning("O novo nome não pode estar vazio.")
+                st.warning("Preencha o nome do novo dataframe.")
             elif new_name == selected_df:
-                st.warning("O novo nome é idêntico ao atual.")
+                st.warning("Os nomes são idênticos.")
             elif new_name in dataframes:
                 st.warning(f"O nome '{new_name}' já está em uso.")
             else:
@@ -33,36 +32,42 @@ def rename_dataframe_form(dataframes: dict):
                 st.session_state.dataframes[new_name] = dataframes[new_name]
 
                 # Marcar como processado
-                st.session_state.processed_files.add(selected_df)
-                st.session_state.processed_files.add(new_name)
+                st.session_state.processed_files.discard(selected_df)  # libera o nome antigo
+                st.session_state.processed_files.add(new_name)         # bloqueia o novo nome
+
 
                 # Fechar formulário e sincronizar
                 st.session_state.show_rename_form = False
                 sync_loaded_data()
                 st.rerun()
 
-
 def delete_dataframe_form(dataframes: dict):
     """Formulário para deletar um dataframe."""
     with st.form("delete_form"):
-        selected_df = st.selectbox("Selecione um dataframe para deletar:", list(dataframes.keys()), key="delete_select")
+        selected_df = st.selectbox(
+            "Selecione um dataframe para deletar:", 
+            list(dataframes.keys()), 
+            key="delete_select"
+        )
         submitted = st.form_submit_button("🗑️ Excluir", use_container_width=True)
 
         if submitted:
+            # 1️⃣ Remove do seu wrapper local
             del dataframes[selected_df]
 
-            # Remover também de dataframes original
+            # 2️⃣ Remove também do session_state.dataframes
             st.session_state.dataframes.pop(selected_df, None)
 
-            # Marcar como processado
-            st.session_state.processed_files.add(selected_df)
+            # 3️⃣ Permite re-upload descartando o nome de processed_files
+            st.session_state.processed_files.discard(selected_df)
 
-            # Fechar formulário e sincronizar
+            # 4️⃣ Feedback visual e fechamento do form
             st.success(f"'{selected_df}' foi removido.")
             st.session_state.show_delete_form = False
+
+            # 5️⃣ Sincroniza e força rerun
             sync_loaded_data()
             st.rerun()
-
 
 
 
@@ -141,7 +146,6 @@ def render_loaded_dataframes():
         st.session_state.show_delete_form = False
 
     dataframes = st.session_state.loaded_data
-    df_names = list(dataframes.keys())
 
     # Tabela
     table_data = [
@@ -168,6 +172,7 @@ def render_loaded_dataframes():
     if st.session_state.show_delete_form:
         delete_dataframe_form(dataframes)
 
+
 def sync_loaded_data():
     """Adiciona novos dataframes carregados ao wrapper loaded_data, sem reinserir renomeados/excluídos."""
     if "loaded_data" not in st.session_state:
@@ -182,9 +187,13 @@ def sync_loaded_data():
 
 load_css()
 
-# Título e subtítulo
 st.title("Estatystica")
-st.subheader("Análise interativa de dados para estatísticas lineares")
+st.caption("Versão 1.3")
+st.markdown(
+    "<h4>O seu software <span class='verde-magico'>B</span><span class='amarelo-brasil'>R</span> para análise de dados e Machine Learning!</h4>",
+    unsafe_allow_html=True
+)
+
 st.divider()
 
 # Inicializa dataframes (modo legado)
@@ -197,12 +206,12 @@ if "processed_files" not in st.session_state:
 
 # Upload múltiplo de arquivos CSV
 uploaded_files = st.file_uploader(
-    "Carregue um ou mais bancos de dados (.csv):",
+    "Carregue um ou mais dataframes:",
     type=["csv", "xls", "xlsx"],
     accept_multiple_files=True
 )
 
-st.write("### 🗃️ Dataframes disponíveis:")
+st.write("### 🗃️ Dataframes disponíveis")
 
 # Processa os arquivos carregados
 if uploaded_files:
@@ -242,6 +251,7 @@ else:
 # Exibe os dataframes disponíveis
 if "loaded_data" in st.session_state and st.session_state.loaded_data:
     render_loaded_dataframes()
+    st.markdown("<br>", unsafe_allow_html=True)
     merge_dataframes_with_fill(st.session_state.dataframes)
 else:
     st.info("Nenhum dataframe disponível para análise.")
