@@ -1,7 +1,7 @@
 # REQUIRED IMPORTS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-import streamlit as st
-import pandas as pd
+import streamlit   as st
+import pandas      as pd
 import scipy.stats as stats
 
 from utils.design import load_css
@@ -24,34 +24,38 @@ def test_normality(df: pd.DataFrame):
         ["Shapiro-Wilk", "Kolmogorov-Smirnov", "D’Agostino-Pearson", "Anderson-Darling"]
     )
 
+    st.caption("Testes de normalidade realizados com [SciPy](https://docs.scipy.org/doc/scipy/) v.1.16.1")
+    
     if selected_cols and test_options:
         for col in selected_cols:
             col_data = df[col].dropna()
-            st.markdown(f"**📌 Coluna: `{col}`**")
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.write(f"#### 📌 {col}")
 
             for test in test_options:
                 if test == "Shapiro-Wilk":
                     stat, p = stats.shapiro(col_data)
-                    st.caption("Shapiro-Wilk: ideal para < 5000 amostras.")
+                    st.write("##### 🟣 Shapiro-Wilk: ideal para < 5000 amostras.")
                 elif test == "Kolmogorov-Smirnov":
                     stat, p = stats.kstest(col_data, 'norm', args=(col_data.mean(), col_data.std()))
-                    st.caption("Kolmogorov-Smirnov: compara com normal padrão.")
+                    st.write("##### 🟣 Kolmogorov-Smirnov: compara com normal padrão.")
                 elif test == "D’Agostino-Pearson":
                     stat, p = stats.normaltest(col_data)
-                    st.caption("D’Agostino-Pearson: avalia simetria e curtose.")
+                    st.write("##### 🟣 D’Agostino-Pearson: avalia simetria e curtose.")
                 elif test == "Anderson-Darling":
                     result = stats.anderson(col_data, dist='norm')
-                    st.caption("Anderson-Darling: fornece estatística crítica.")
+                    st.write("##### 🟣 Anderson-Darling: fornece estatística crítica.")
                     st.write(f"Estatística: {result.statistic:.4f}")
                     for i in range(len(result.critical_values)):
                         st.write(f"Nível {result.significance_level[i]}% → valor crítico: {result.critical_values[i]}")
                     continue
 
-                st.write(f"→ Estatística: `{stat:.4f}`, valor-p: `{p:.4g}`")
+                st.write(f"Estatística: `{stat:.4f}`, valor-p: `{p:.4g}`")
                 if p < 0.05:
-                    st.error("🚫 Rejeita normalidade (p < 0.05)")
+                    st.error("⛔ Rejeita normalidade (p < 0.05)")
                 else:
                     st.success("✅ Distribuição compatível com normalidade (p ≥ 0.05)")
+            
 
 def describe_numeric_column(df: pd.DataFrame, df_name="selected_df_name"):
     """
@@ -239,9 +243,15 @@ def describe_numeric_column(df: pd.DataFrame, df_name="selected_df_name"):
             mime="image/png",
             use_container_width=True
         )
-    
 
-    
+    # McKinney, 2010
+    st.info(
+        """**[W. McKinney. *Data Structures for Statistical Computing in Python* (2010)](https://proceedings.scipy.org/articles/Majora-92bf1922-00a.pdf)**  
+    \nO autor argumenta que a integração de pandas com NumPy, SciPy, Matplotlib e outras bibliotecas científicas torna o Python uma opção cada vez mais atraente para análise de dados estatísticos, especialmente em comparação com R. O artigo aponta a evolução futura da biblioteca e seu papel central em um ecossistema de modelagem estatística em Python.
+    """,
+        icon="📜"
+    )
+
     # Renderiza as tabelas
     st.write("### Tendência central")
     st.caption("Métricas que resumem a localização dos dados na distribuição.")
@@ -251,13 +261,19 @@ def describe_numeric_column(df: pd.DataFrame, df_name="selected_df_name"):
     st.caption("Indicadores de variabilidade, amplitude e o formato da distribuição.")
     st.table(pd.DataFrame(dispersao.items(), columns=["Estatística", "Valor"]))
 
+    st.caption("Powered by [Pandas](https://pandas.pydata.org/docs/) v.2.3.1, [Streamlit](https://docs.streamlit.io/) v.1.35.0, [Matplotlib](https://matplotlib.org/stable/index.html) v3.10.5")
+
 # PAGE 1 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 load_css()
 
 # Título e instruções iniciais
 st.title("Estatísticas Descritivas")
-st.caption("Visualização, tendência central e dispersão de dataframes.")
+
+st.caption("""
+A seção **Estatísticas Descritivas** fornece uma análise detalhada da distribuição de variáveis numéricas, incluindo medidas de **tendência central** (média, mediana, moda), **dispersão** (desvio padrão, IQR, amplitude) e **forma** da distribuição (assimetria e curtose). 
+Também permite gerar gráficos interativos (histograma, boxplot e curva de densidade). 
+""")
 
 # Verify dataframe
 if "dataframes" not in st.session_state or not st.session_state.dataframes:
@@ -305,6 +321,10 @@ if not numeric_cols:
         st.stop()
 
 st.write("### Normalidade")
+st.caption("""
+Além disso, estão disponíveis testes clássicos de **normalidade** — como Shapiro-Wilk, Kolmogorov-Smirnov e D’Agostino-Pearson — para verificar se os dados seguem uma distribuição normal. 
+Ideal para exploração inicial de dados, identificação de padrões e avaliação da adequação para testes estatísticos posteriores.
+""")
 
 with st.expander("Executar testes de normalidade"):
     st.markdown("<br>", unsafe_allow_html=True)

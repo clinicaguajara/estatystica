@@ -316,8 +316,13 @@ def linear_regression_analysis(df: pd.DataFrame):
 # PAGE 3 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 load_css()
+
 st.title("Estatística Inferencial")
-st.caption("Regressões, testes de hipótese e magnitude.")
+
+st.caption("""
+A seção **Estatística Inferencial** permite investigar relações entre variáveis por meio de testes de correlação, regressão linear e visualizações analíticas. 
+Inclui cálculo dos coeficientes de **Pearson**, **Spearman** e **Kendall**, com valores-p para teste de significância, além de gráficos de dispersão e **regressão linear simples** com equações ajustadas e métricas como **R²** e valor-p do coeficiente. 
+""")
 
 # Verify dataframe
 if "dataframes" not in st.session_state or not st.session_state.dataframes:

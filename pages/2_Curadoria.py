@@ -269,8 +269,15 @@ def conditional_row_removal(df: pd.DataFrame, df_name: str):
 load_css()
 
 # Título e instruções iniciais
-st.title("Curadoria de Dados")
-st.caption("Remova outliers e aplique transformações nos dataframes.")
+st.title("Curadoria")
+
+st.caption("""
+A seção **Curadoria** oferece ferramentas essenciais para limpeza e transformação de dados antes da análise estatística. 
+Permite remover linhas ou colunas manualmente, excluir registros com valores extremos, aplicar filtros condicionais e eliminar padrões de resposta redundantes (ex: repetições excessivas do mesmo valor).
+Também disponibiliza um sistema de **mapeamento categórico em lote**, que converte múltiplas variáveis qualitativas em códigos numéricos padronizados. 
+Ideal para garantir a qualidade e a consistência dos dados, preparando-os para análises psicométricas, estatísticas ou modelagens mais avançadas.
+""")
+
 
 # Verificação da presença de dataframes
 if "dataframes" not in st.session_state or not st.session_state.dataframes:

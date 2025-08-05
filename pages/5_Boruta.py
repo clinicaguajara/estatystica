@@ -47,6 +47,8 @@ target_column = st.selectbox("Selecione a variável alvo (y):", options=df.selec
 
 # Parâmetros ajustáveis
 with st.expander("⚙️ Ajustar parâmetros do modelo", expanded=False):
+    
+    st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("""
     **Sobre os parâmetros:**
     - `max_depth`: controla a profundidade máxima das árvores na floresta. Valores maiores permitem modelos mais complexos, mas com maior risco de overfitting.
@@ -133,7 +135,7 @@ if st.button("🚀 Executar Boruta", use_container_width=True):
         st.dataframe(result_df)
 
         csv = result_df.to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Baixar resultados (.csv)", data=csv,
+        st.download_button("📥 Download (.csv)", use_container_width=True, data=csv,
                            file_name="boruta_resultados.csv", mime="text/csv")
 
     except Exception as e:

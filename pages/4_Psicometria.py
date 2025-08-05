@@ -158,8 +158,16 @@ def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
 # PAGE 4 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 load_css()
+
 st.title("Psicometria")
-st.caption("Construção e validação de escalas.")
+
+st.caption("""
+A seção **Psicometria** oferece ferramentas para criação, escoragem e avaliação estatística de escalas psicológicas. 
+É possível construir novas escalas a partir de itens selecionados, definir fatores internos e calcular indicadores fundamentais, 
+como o **alfa de Cronbach** (consistência interna), o **KMO** e o **teste de esfericidade de Bartlett** (adequação da amostra). 
+Também estão disponíveis métodos de análise fatorial como a **EFA** (Exploratória), **PCA** (Análise de Componentes Principais) 
+e, em breve, **CFA** (Confirmatória). Ideal para pesquisadores que desejam validar construtos latentes de forma empírica.
+""")
 
 # Verify dataframe
 if "dataframes" not in st.session_state or not st.session_state.dataframes:
