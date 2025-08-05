@@ -261,7 +261,7 @@ def describe_numeric_column(df: pd.DataFrame, df_name="selected_df_name"):
     st.caption("Indicadores de variabilidade, amplitude e o formato da distribuição.")
     st.table(pd.DataFrame(dispersao.items(), columns=["Estatística", "Valor"]))
 
-    st.caption("Powered by [Pandas](https://pandas.pydata.org/docs/) v.2.3.1, [Streamlit](https://docs.streamlit.io/) v.1.35.0, [Matplotlib](https://matplotlib.org/stable/index.html) v3.10.5")
+    st.caption("Powered by [Pandas](https://pandas.pydata.org/docs/) v.2.3.1, [Streamlit](https://docs.streamlit.io/) v.1.46.0, [Matplotlib](https://matplotlib.org/stable/index.html) v3.10.5")
 
 # PAGE 1 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 

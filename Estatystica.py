@@ -188,7 +188,10 @@ def sync_loaded_data():
 load_css()
 
 st.title("Estatystica")
-st.caption("Versão 1.3")
+
+from utils.variables import version
+
+st.caption(f"Versão {version}")
 st.markdown(
     "<h4>O seu software <span class='verde-magico'>B</span><span class='amarelo-brasil'>R</span> para análise de dados e Machine Learning!</h4>",
     unsafe_allow_html=True
