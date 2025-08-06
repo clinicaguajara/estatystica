@@ -42,13 +42,6 @@ def sem_mediation_analysis(df: pd.DataFrame):
     df_sem = df[orig].dropna().rename(columns=san)
     X_s, M_s, Y_s = san[X], san[M], san[Y]
 
-    model_desc = f"""
-    {M_s} ~ a*{X_s}
-    {Y_s} ~ b*{M_s} + c*{X_s}
-    """
-    sem = Model(model_desc)
-    sem.fit(df_sem)
-
     # 2.1) Sanitização de nomes para semopy
     orig = [X, M, Y]
     san = {orig[i]: f"V{i}" for i in range(3)}
