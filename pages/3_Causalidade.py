@@ -36,14 +36,18 @@ def sem_mediation_analysis(df: pd.DataFrame):
     M = st.selectbox("M (mediadora):", [c for c in numeric if c != X], key="sem_m")
     Y = st.selectbox("Y (dependente):", [c for c in numeric if c not in (X, M)], key="sem_y")
 
-    # 2) Ajuste do SEM (com interceptos)
-    df_nona = df[[X, M, Y]].dropna()
+    # 2) Ajuste do SEM com nomes sanitizados para evitar erros de sintaxe
+    orig = [X, M, Y]
+    san = {orig[i]: f"V{i}" for i in range(3)}  # ex: {'PID-5-BF': 'V0', 'LSM-21': 'V1', 'AQ-50': 'V2'}
+    df_sem = df[orig].dropna().rename(columns=san)
+    X_s, M_s, Y_s = san[X], san[M], san[Y]
+
     model_desc = f"""
-    {M} ~ a*{X}
-    {Y} ~ b*{M} + c*{X}
+    {M_s} ~ a*{X_s}
+    {Y_s} ~ b*{M_s} + c*{X_s}
     """
     sem = Model(model_desc)
-    sem.fit(df_nona)
+    sem.fit(df_sem)
 
     # 2.1) Sanitização de nomes para semopy
     orig = [X, M, Y]
@@ -126,7 +130,7 @@ def sem_mediation_analysis(df: pd.DataFrame):
 
     st.dataframe(sem_summary_df.style.format(precision=4))
 
-    st.write("### Bootstrap")
+    st.write("### Bootsrap")
 
     # Parâmetro via slider
     n_boot = st.slider(
@@ -144,14 +148,14 @@ def sem_mediation_analysis(df: pd.DataFrame):
         direct_boot = []
         with st.spinner("Executando bootstrap…"):
             for _ in range(n_boot):
-                sample_df = df_nona.sample(n=len(df_nona), replace=True)
+                sample_df = df_sem.sample(n=len(df_sem), replace=True)
                 sem_b = Model(model_desc)
                 sem_b.fit(sample_df)
                 p = sem_b.inspect(std_est=True)
 
-                a_b = float(p.loc[(p["lval"] == M) & (p["op"] == "~") & (p["rval"] == X), "Estimate"])
-                b_b = float(p.loc[(p["lval"] == Y) & (p["op"] == "~") & (p["rval"] == M), "Estimate"])
-                c_b = float(p.loc[(p["lval"] == Y) & (p["op"] == "~") & (p["rval"] == X), "Estimate"])
+                a_b = float(p.loc[(p["lval"] == M_s) & (p["op"] == "~") & (p["rval"] == X_s), "Estimate"])
+                b_b = float(p.loc[(p["lval"] == Y_s) & (p["op"] == "~") & (p["rval"] == M_s), "Estimate"])
+                c_b = float(p.loc[(p["lval"] == Y_s) & (p["op"] == "~") & (p["rval"] == X_s), "Estimate"])
 
                 indirect_boot.append(a_b * b_b)
                 direct_boot.append(c_b)
