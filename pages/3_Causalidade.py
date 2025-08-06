@@ -37,9 +37,9 @@ def mediation_analysis(df: pd.DataFrame):
     Y = st.selectbox("Y:", [c for c in numeric if c not in (X, M)], key="med_y")
 
     # Ajuste dos modelos
-    m_mod     = ols(f"{M} ~ {X}", data=df).fit()
-    y_mod     = ols(f"{Y} ~ {X} + {M}", data=df).fit()
-    total_mod = ols(f"{Y} ~ {X}", data=df).fit()
+    m_mod     = ols(f"`{M}` ~ `{X}`", data=df).fit()
+    y_mod     = ols(f"`{Y}` ~ `{X}` + `{M}`", data=df).fit()
+    total_mod = ols(f"`{Y}` ~ `{X}`", data=df).fit()
 
     a        = m_mod.params[X]
     b        = y_mod.params[M]
