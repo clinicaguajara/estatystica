@@ -9,8 +9,8 @@ import statsmodels.api as sm
 from utils.design import load_css
 
 # CUSTOM FUNCTIONS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-
 # SEM Mediation Analysis
+
 def sem_mediation_analysis(df: pd.DataFrame):
     """
     Executa análise de mediação via SEM (X → M → Y), com:
@@ -23,6 +23,7 @@ def sem_mediation_analysis(df: pd.DataFrame):
     import matplotlib.pyplot as plt
     import io
     import copy
+    import numpy as np
     import plotly.graph_objects as go
     from semopy import Model
     from semopy.stats import calc_stats
@@ -36,27 +37,21 @@ def sem_mediation_analysis(df: pd.DataFrame):
     M = st.selectbox("M (mediadora):", [c for c in numeric if c != X], key="sem_m")
     Y = st.selectbox("Y (dependente):", [c for c in numeric if c not in (X, M)], key="sem_y")
 
-    # 2) Ajuste do SEM com nomes sanitizados para evitar erros de sintaxe
+    # 2) Nomes sanitizados e preparo do dataframe
     orig = [X, M, Y]
     san = {orig[i]: f"V{i}" for i in range(3)}  # ex: {'PID-5-BF': 'V0', 'LSM-21': 'V1', 'AQ-50': 'V2'}
     df_sem = df[orig].dropna().rename(columns=san)
 
-    # Opção de normalizar variáveis
-    normalize = st.checkbox("Normalizar variáveis (z-score) para interpretação padronizada", value=False)
+    # 2.1) Normalização opcional (mantém nomes sanitizados)
+    normalize = st.checkbox(
+        "Normalizar variáveis (z-score) para interpretação padronizada", value=False
+    )
     if normalize:
         df_sem = (df_sem - df_sem.mean()) / df_sem.std()
 
-
     X_s, M_s, Y_s = san[X], san[M], san[Y]
 
-    # 2.1) Sanitização de nomes para semopy
-    orig = [X, M, Y]
-    san = {orig[i]: f"V{i}" for i in range(3)}
-    # reamostra só as 3 variáveis, renomeando
-    df_sem = df[orig].dropna().rename(columns=san)
-    X_s, M_s, Y_s = san[X], san[M], san[Y]
-
-    # 2.2) Ajuste do SEM com nomes sanitizados
+    # 3) Ajuste do SEM
     model_desc = f"""
     {M_s} ~ a*{X_s}
     {Y_s} ~ b*{M_s} + c*{X_s}
@@ -64,186 +59,123 @@ def sem_mediation_analysis(df: pd.DataFrame):
     sem = Model(model_desc)
     sem.fit(df_sem)
 
-    # 3) Estimativas principais (usando san[original])
+    # 4) Estimativas principais
     params = sem.inspect(std_est=True)
-    a = float(params.loc[
-        (params["lval"] == M_s) & (params["op"] == "~") & (params["rval"] == X_s),
-        "Estimate"
-    ].iloc[0])
-    b = float(params.loc[
-        (params["lval"] == Y_s) & (params["op"] == "~") & (params["rval"] == M_s),
-        "Estimate"
-    ].iloc[0])
-    c_prime = float(params.loc[
-        (params["lval"] == Y_s) & (params["op"] == "~") & (params["rval"] == X_s),
-        "Estimate"
-    ].iloc[0])
+    a = float(params.loc[(params["lval"] == M_s) & (params["op"] == "~") & (params["rval"] == X_s), "Estimate"].iloc[0])
+    b = float(params.loc[(params["lval"] == Y_s) & (params["op"] == "~") & (params["rval"] == M_s), "Estimate"].iloc[0])
+    c_prime = float(params.loc[(params["lval"] == Y_s) & (params["op"] == "~") & (params["rval"] == X_s), "Estimate"].iloc[0])
     indirect = a * b
     total = c_prime + indirect
 
-    # 4) Índices de ajuste global
+    # 5) Índices de ajuste global
     stats_df = calc_stats(sem)
 
-    # 5) Exibição textual
+    # 6) Exibição textual
     st.write("### Modelagem")
     st.markdown(f"""
     - Caminho a ({X} ➝ {M}): `{a:.3f}`  
     - Caminho b ({M} ➝ {Y}): `{b:.3f}`  
-    - Total c ({X} ➝ {Y}): `{c_prime:.3f}`
+    - Total c ({X} ➝ {Y}): `{c_prime:.3f}`  
     - Efeito direto (controlando M): `{total:.3f}`  
-    - Efeito indireto (a×b): `{indirect:.3f}`    
+    - Efeito indireto (a×b): `{indirect:.3f}`  
     """)
 
-    # 6) Tabela de coeficientes SEM com índice personalizado
-    path_params = params[params["op"] == "~"]
-
-    # mapa inverso para voltar aos nomes originais
+    # 7) Tabela de coeficientes SEM
+    path_params = params[params["op"] == "~"].copy()
     inv_san = {v: k for k, v in san.items()}
-
-    # substitui V0, V1, V2 por X, M, Y originais
-    path_params = path_params.copy()  # para evitar warning de pandas
     path_params["lval"] = path_params["lval"].map(inv_san)
     path_params["rval"] = path_params["rval"].map(inv_san)
-
 
     columns_map = {
         "Estimate": "Coeficiente",
         "SE": "Erro padrão",
-        "Std.Err": "Erro padrão",
         "z-value": "z-valor",
-        "t-value": "t-valor",
         "p-value": "p-valor"
     }
-
-    index_labels = [f"{dest} ➝ {orig}" for dest, orig in zip(path_params["lval"], path_params["rval"])]
+    index_labels = [f"{row['lval']} ➝ {row['rval']}" for _, row in path_params.iterrows()]
     sem_summary_df = pd.DataFrame(index=index_labels)
-
-    sem_summary_df["Destino"] = path_params["lval"].values
-    sem_summary_df["Origem"] = path_params["rval"].values
-
     for raw_col, display_col in columns_map.items():
         if raw_col in path_params.columns:
             sem_summary_df[display_col] = path_params[raw_col].values
-
-    # Oculta as colunas "Destino" e "Origem" para visual mais limpo
-    sem_summary_df.drop(columns=["Destino", "Origem"], inplace=True)
-
     st.dataframe(sem_summary_df.style.format(precision=4))
+    
+    if normalize:
+        st.caption("⚠️ Dados padronizados por z-score (média 0, desvio-padrão 1)")
 
-    st.write("### Bootsrap")
-
-    # Parâmetro via slider
-    n_boot = st.slider(
-        "Réplicas do bootstrap:",
-        min_value=100,
-        max_value=50000,
-        value=1000,
-        step=100,
-        key="sem_boot_n"
-    )
-
-    # Botão que dispara o cálculo
+    # 8) Bootstrap de intervalos de confiança
+    st.write("### Bootstrap")
+    n_boot = st.slider("Réplicas do bootstrap:", 100, 50000, 1000, 100)
     if st.button("Calcular intervalos de confiança", key="btn_sem_boot", use_container_width=True):
-        indirect_boot = []
-        direct_boot = []
+        indirect_boot, direct_boot = [], []
         with st.spinner("Executando bootstrap…"):
             for _ in range(n_boot):
                 sample_df = df_sem.sample(n=len(df_sem), replace=True)
                 sem_b = Model(model_desc)
                 sem_b.fit(sample_df)
                 p = sem_b.inspect(std_est=True)
-
                 a_b = float(p.loc[(p["lval"] == M_s) & (p["op"] == "~") & (p["rval"] == X_s), "Estimate"])
                 b_b = float(p.loc[(p["lval"] == Y_s) & (p["op"] == "~") & (p["rval"] == M_s), "Estimate"])
                 c_b = float(p.loc[(p["lval"] == Y_s) & (p["op"] == "~") & (p["rval"] == X_s), "Estimate"])
-
                 indirect_boot.append(a_b * b_b)
                 direct_boot.append(c_b)
-
-        # Estatísticas
         ci_ind_low, ci_ind_high = np.percentile(indirect_boot, [2.5, 97.5])
-        ci_dir_low, ci_dir_high = np.percentile(direct_boot,   [2.5, 97.5])
-
+        ci_dir_low, ci_dir_high = np.percentile(direct_boot, [2.5, 97.5])
         st.write("### Intervalos de Confiança (95%)")
         st.markdown(f"""
         - **Indireto (a×b)**: `{ci_ind_low:.3f}` a `{ci_ind_high:.3f}`  
-        - **Direto (c′)**: `{ci_dir_low:.3f}` a `{ci_dir_high:.3f}`
+        - **Direto (c′)**: `{ci_dir_low:.3f}` a `{ci_dir_high:.3f}`  
         """)
 
+    # 9) Índices de ajuste do modelo
     st.write("### Índices de ajuste do modelo")
     st.dataframe(stats_df)
 
-    # ─── BARRAS MATPLOTLIB ─────────────────────────────────────────────────
+    # 10) Gráficos de efeito com matplotlib
     st.write("### Tamanho de efeito")
-    effects = pd.DataFrame({
-        "Efeito": ["Direto (c′)", "Indireto", "Total"],
-        "Valor": [c_prime, indirect, total]
-    })
+    effects = pd.DataFrame({"Efeito": ["Direto (c′)", "Indireto", "Total"], "Valor": [c_prime, indirect, total]})
     dark_bg, white, purple = "#0E1117", "#FFFFFF", "#7159c1"
-
     # tema escuro
     fig_bar_d, ax_bar_d = plt.subplots(figsize=(6, 3.5), facecolor=dark_bg)
     ax_bar_d.set_facecolor(dark_bg)
     ax_bar_d.bar(effects["Efeito"], effects["Valor"], color=purple, edgecolor=white, linewidth=1.5, alpha=0.8)
     ax_bar_d.axhline(0, color=white, linewidth=1.5)
     ax_bar_d.tick_params(colors=white)
-    for spine in ax_bar_d.spines.values():
-        spine.set_edgecolor(white)
+    for spine in ax_bar_d.spines.values(): spine.set_edgecolor(white)
     plt.tight_layout()
     st.pyplot(fig_bar_d)
 
-    # buffers de download barras
-    buf_bar_d = io.BytesIO()
-    fig_bar_d.savefig(buf_bar_d, format="png", facecolor=dark_bg)
-    buf_bar_d.seek(0)
-
-    # versão clara
+    # Downloads barras
+    buf_bar_d = io.BytesIO(); fig_bar_d.savefig(buf_bar_d, format="png", facecolor=dark_bg); buf_bar_d.seek(0)
+    buf_bar_l = io.BytesIO();
     fig_bar_l, ax_bar_l = plt.subplots(figsize=(6, 3.5), facecolor="white")
-    ax_bar_l.set_facecolor("white")
     ax_bar_l.bar(effects["Efeito"], effects["Valor"], color=purple, edgecolor="black", linewidth=1.5, alpha=0.8)
     ax_bar_l.axhline(0, color="black", linewidth=1.5)
-    ax_bar_l.tick_params(colors="black")
-    for spine in ax_bar_l.spines.values():
-        spine.set_edgecolor("black")
-    plt.tight_layout()
-    buf_bar_l = io.BytesIO()
-    fig_bar_l.savefig(buf_bar_l, format="png", facecolor="white")
-    buf_bar_l.seek(0)
-
+    for spine in ax_bar_l.spines.values(): spine.set_edgecolor("black")
+    plt.tight_layout(); fig_bar_l.savefig(buf_bar_l, format="png", facecolor="white"); buf_bar_l.seek(0)
     c1, c2 = st.columns(2)
-    with c1:
-        st.download_button("📥 Download (escuro)", data=buf_bar_d, file_name="sem_bar_dark.png", mime="image/png", use_container_width=True)
-    with c2:
-        st.download_button("📥 Download (claro)", data=buf_bar_l, file_name="sem_bar_light.png", mime="image/png", use_container_width=True)
+    with c1: st.download_button("📥 Download (escuro)", data=buf_bar_d, file_name="sem_bar_dark.png", mime="image/png", use_container_width=True)
+    with c2: st.download_button("📥 Download (claro)", data=buf_bar_l, file_name="sem_bar_light.png", mime="image/png", use_container_width=True)
 
-    # ─── SANKEY INTERATIVO ──────────────────────────────────────────────────────
+    # 11) Sankey interativo
     st.write("### Diagrama de Sankey")
     st.caption("Visualize o fluxo de efeito direto, indireto e total entre X, M e Y.")
-    fig_snk_d = go.Figure(go.Sankey(
-        arrangement="snap",
+    fig_snk = go.Figure(go.Sankey(arrangement="snap",
         node=dict(label=[X, M, Y], pad=15, thickness=20, color=dark_bg, line=dict(color=white, width=1)),
         link=dict(
             source=[0, 1, 0], target=[1, 2, 2], value=[abs(a), abs(indirect), abs(c_prime)],
             color=["rgba(113,89,193,0.8)" if v>=0 else "rgba(193,89,113,0.8)" for v in [a, indirect, c_prime]]
         )
     ))
-    fig_snk_d.update_layout(paper_bgcolor=dark_bg, font=dict(color=white, size=14), margin=dict(l=10, r=10, t=30, b=10))
-    st.plotly_chart(fig_snk_d, use_container_width=True)
+    fig_snk.update_layout(paper_bgcolor=dark_bg, font=dict(color=white, size=14), margin=dict(l=10, r=10, t=30, b=10))
+    st.plotly_chart(fig_snk, use_container_width=True)
 
-    # prepara downloads alluvial
-    fig_snk_g = copy.deepcopy(fig_snk_d)
-    fig_snk_g.update_layout(paper_bgcolor="gray", font=dict(color="black", size=14))
-    html_dark = fig_snk_g.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
-    fig_snk_l = copy.deepcopy(fig_snk_d)
-    fig_snk_l.update_layout(paper_bgcolor="white", font=dict(color="black", size=14))
-    html_light = fig_snk_l.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
-
+    # 12) Downloads Sankey
+    html_dark = fig_snk.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
+    fig_snk.update_layout(paper_bgcolor="white", font=dict(color="black", size=14))
+    html_light = fig_snk.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
     col1, col2 = st.columns(2)
-    with col1:
-        st.download_button("📥 Download (escuro)", data=html_dark, file_name="sem_sankey_dark.html", mime="text/html", use_container_width=True)
-    with col2:
-        st.download_button("📥 Download (claro)", data=html_light, file_name="sem_sankey_light.html", mime="text/html", use_container_width=True)
-
+    with col1: st.download_button("📥 Download (escuro)", data=html_dark, file_name="sem_sankey_dark.html", mime="text/html", use_container_width=True)
+    with col2: st.download_button("📥 Download (claro)", data=html_light, file_name="sem_sankey_light.html", mime="text/html", use_container_width=True)
 
 def mediation_analysis(df: pd.DataFrame):
     """
