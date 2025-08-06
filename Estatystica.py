@@ -1,17 +1,35 @@
-
-# REQUIRED IMPORTS ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# REQUIRED IMPORTS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 import streamlit as st
-import pandas as pd
+import pandas    as pd
 
-from pathlib        import Path
-from io             import BytesIO
-from utils.design   import load_css
+from pathlib         import Path
+from io              import BytesIO
+from utils.design    import load_css
+from utils.variables import version
 
-# CUSTOM FUNCTIONS ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# HOMEPAGE ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+st.set_page_config(
+    page_title="Estatystica",
+    page_icon="📈",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
+
+load_css()
+
+st.title("Estatystica")
+st.caption(f"Versão {version}")
+st.markdown("""
+<h4>O seu software <span class='verde-magico'>B</span><span class='amarelo-brasil'>R</span> para análise de dados e Machine Learning!</h4>
+""", unsafe_allow_html=True)
+
+st.divider()
+
+# CUSTOM FUNCTIONS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 def rename_dataframe_form(dataframes: dict):
-    """Formulário para renomear um dataframe."""
     with st.form("rename_form"):
         selected_df = st.selectbox("Selecione um dataframe:", list(dataframes.keys()), key="rename_select")
         new_name = st.text_input("Novo nome:", key="rename_input")
@@ -26,69 +44,37 @@ def rename_dataframe_form(dataframes: dict):
                 st.warning(f"O nome '{new_name}' já está em uso.")
             else:
                 dataframes[new_name] = dataframes.pop(selected_df)
-
-                # Remove também da estrutura original
                 st.session_state.dataframes.pop(selected_df, None)
                 st.session_state.dataframes[new_name] = dataframes[new_name]
-
-                # Marcar como processado
-                st.session_state.processed_files.discard(selected_df)  # libera o nome antigo
-                st.session_state.processed_files.add(new_name)         # bloqueia o novo nome
-
-
-                # Fechar formulário e sincronizar
+                st.session_state.processed_files.discard(selected_df)
+                st.session_state.processed_files.add(new_name)
                 st.session_state.show_rename_form = False
+                st.session_state.rename_feedback = f"'{selected_df}' foi renomeado para '{new_name}'."
                 sync_loaded_data()
                 st.rerun()
 
 def delete_dataframe_form(dataframes: dict):
-    """Formulário para deletar um dataframe."""
     with st.form("delete_form"):
-        selected_df = st.selectbox(
-            "Selecione um dataframe para deletar:", 
-            list(dataframes.keys()), 
-            key="delete_select"
-        )
+        selected_df = st.selectbox("Selecione um dataframe para deletar:", list(dataframes.keys()), key="delete_select")
         submitted = st.form_submit_button("🗑️ Excluir", use_container_width=True)
 
         if submitted:
-            # 1️⃣ Remove do seu wrapper local
             del dataframes[selected_df]
-
-            # 2️⃣ Remove também do session_state.dataframes
             st.session_state.dataframes.pop(selected_df, None)
-
-            # 3️⃣ Permite re-upload descartando o nome de processed_files
             st.session_state.processed_files.discard(selected_df)
-
-            # 4️⃣ Feedback visual e fechamento do form
-            st.success(f"'{selected_df}' foi removido.")
             st.session_state.show_delete_form = False
-
-            # 5️⃣ Sincroniza e força rerun
+            st.session_state.delete_feedback = f"'{selected_df}' foi removido."
             sync_loaded_data()
             st.rerun()
 
-
-
 def merge_dataframes_with_fill(dataframes: dict):
-    """
-    <docstrings>
-    Permite unir múltiplos dataframes, preenchendo colunas ausentes com NaN antes da concatenação.
-
-    Args:
-        dataframes (dict): Dicionário com dataframes carregados.
-
-    Calls:
-        st.multiselect(): Seleciona múltiplos dataframes | instanciado por st.
-        pd.concat(): Junta todos os dataframes verticalmente | função definida em pandas.
-        st.session_state.dataframes.__setitem__(): Salva o novo dataframe no estado global | método do session_state.
-
-    Returns:
-        None. Cria um novo dataframe combinado no session_state.
-    """
+    st.divider()
     st.subheader("Empilhar dataframes")
-    st.caption("Colunas iguais serão alinhadas e colunas diferentes serão preenchidas com 'Nan' automaticamente.")
+    st.caption("Colunas iguais serão alinhadas e colunas diferentes serão preenchidas com 'Nan'.")
+
+    # ⬇️ Mensagem de sucesso pós-rerun
+    if msg := st.session_state.pop("merge_feedback", None):
+        st.success(msg)
 
     df_names = list(dataframes.keys())
     if len(df_names) < 2:
@@ -96,12 +82,7 @@ def merge_dataframes_with_fill(dataframes: dict):
         return
 
     with st.form("merge_multiple_form"):
-        selected_names = st.multiselect(
-            "Selecione os dataframes que deseja empilhar:",
-            df_names,
-            default=[]
-        )
-
+        selected_names = st.multiselect("Selecione os dataframes que deseja empilhar:", df_names, default=[])
         new_name = st.text_input("Nome para o novo dataframe combinado:", value="uniao_dataframes")
         submitted = st.form_submit_button("Empilhar Dataframes", use_container_width=True)
 
@@ -110,36 +91,25 @@ def merge_dataframes_with_fill(dataframes: dict):
                 st.warning("Selecione pelo menos dois dataframes.")
                 return
 
-            # Coleta os dataframes
             dfs = [dataframes[name].copy() for name in selected_names]
-
-            # Determina o conjunto total de colunas
             all_columns = set().union(*[df.columns for df in dfs])
-
-            # Preenche colunas ausentes com NaN em cada dataframe
             for i in range(len(dfs)):
                 missing_cols = all_columns - set(dfs[i].columns)
                 for col in missing_cols:
                     dfs[i][col] = pd.NA
-                # Garante mesma ordem de colunas
                 dfs[i] = dfs[i][sorted(all_columns)]
 
-            # Concatena tudo
             df_merged = pd.concat(dfs, ignore_index=True, sort=False)
-
-            # Salva no session_state
             st.session_state.dataframes[new_name] = df_merged
             st.session_state.loaded_data[new_name] = df_merged
 
-            st.success(f"{len(selected_names)} dataframes empilhados com sucesso como '{new_name}' ({df_merged.shape[0]} linhas × {df_merged.shape[1]} colunas).")
-
+            # ⬇️ Armazena mensagem e força rerun
+            st.session_state["merge_feedback"] = f"{len(selected_names)} dataframes empilhados como '{new_name}' ({df_merged.shape[0]} linhas × {df_merged.shape[1]} colunas)."
+            st.rerun()
 
 def render_loaded_dataframes():
-    """Exibe os dataframes carregados com opções de renomear e deletar."""
-
     if "loaded_data" not in st.session_state:
         st.session_state.loaded_data = dict(st.session_state.dataframes)
-
     if "show_rename_form" not in st.session_state:
         st.session_state.show_rename_form = False
     if "show_delete_form" not in st.session_state:
@@ -147,14 +117,32 @@ def render_loaded_dataframes():
 
     dataframes = st.session_state.loaded_data
 
-    # Tabela
     table_data = [
-        {"Nome": name, "Dimensões": f"{df.shape[0]} × {df.shape[1]}"}
-        for name, df in dataframes.items()
+        {"Nome": name, "Dimensões": f"{df.shape[0]} × {df.shape[1]}"} for name, df in dataframes.items()
     ]
-    st.table(pd.DataFrame(table_data))
 
-    # Botões de ação
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    placeholder_table = st.empty()
+    placeholder_feedback = st.empty()
+
+    if table_data:
+        placeholder_table.table(pd.DataFrame(table_data))
+    else:
+        st.session_state.pop("delete_feedback", None)
+        st.session_state.pop("rename_feedback", None)
+        placeholder_feedback.info("Nenhum dataframe disponível para análise.")
+        return
+
+    # Tenta recuperar e remover a mensagem de renomeação do session_state.
+    # Se a variável "rename_feedback" existir, ela será removida (pop) e atribuída a "msg".
+    # O operador walrus := permite fazer isso em uma única linha.
+    if msg := st.session_state.pop("rename_feedback", None):
+        placeholder_feedback.success(msg)
+        
+    elif msg := st.session_state.pop("delete_feedback", None):
+        placeholder_feedback.success(msg)
+
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Renomear", use_container_width=True):
@@ -165,16 +153,14 @@ def render_loaded_dataframes():
             st.session_state.show_delete_form = True
             st.session_state.show_rename_form = False
 
-    # Mostrar formulário correspondente
+    st.caption("Carregue mais de um dataframe para realizar operações com bancos de dados, ou explore o menu lateral para realizar operações entre linhas e colunas de um mesmo dataframe já carregado na sessão.")
+
     if st.session_state.show_rename_form:
         rename_dataframe_form(dataframes)
-
     if st.session_state.show_delete_form:
         delete_dataframe_form(dataframes)
 
-
 def sync_loaded_data():
-    """Adiciona novos dataframes carregados ao wrapper loaded_data, sem reinserir renomeados/excluídos."""
     if "loaded_data" not in st.session_state:
         st.session_state.loaded_data = dict(st.session_state.dataframes)
     else:
@@ -182,79 +168,55 @@ def sync_loaded_data():
             if key not in st.session_state.loaded_data:
                 st.session_state.loaded_data[key] = st.session_state.dataframes[key]
 
+# IMPLEMENTATION ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-# PAGE 0 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-
-load_css()
-
-st.title("Estatystica")
-
-from utils.variables import version
-
-st.caption(f"Versão {version}")
-st.markdown(
-    "<h4>O seu software <span class='verde-magico'>B</span><span class='amarelo-brasil'>R</span> para análise de dados e Machine Learning!</h4>",
-    unsafe_allow_html=True
-)
-
-st.divider()
-
-# Inicializa dataframes (modo legado)
+# Initializing session variables.
 if "dataframes" not in st.session_state:
     st.session_state["dataframes"] = {}
 
-# Inicializa se necessário
 if "processed_files" not in st.session_state:
     st.session_state.processed_files = set()
 
-# Upload múltiplo de arquivos CSV
+# Upload dataframes.
 uploaded_files = st.file_uploader(
     "Carregue um ou mais dataframes:",
     type=["csv", "xls", "xlsx"],
     accept_multiple_files=True
 )
 
-st.write("### Dataframes disponíveis")
-
-# Processa os arquivos carregados
+# Proccessing
 if uploaded_files:
     for file in uploaded_files:
         try:
-            name = Path(file.name).stem  # Nome base sem extensão
+            name = Path(file.name).stem
             suffix = Path(file.name).suffix.lower()
-
             if name in st.session_state.processed_files:
                 continue
 
-            # Lê conforme o tipo do arquivo
             if suffix == ".csv":
                 df = pd.read_csv(file)
             elif suffix in [".xls", ".xlsx"]:
-                df = pd.read_excel(BytesIO(file.read()))  # Leitura segura para arquivos binários
+                df = pd.read_excel(BytesIO(file.read()))
             else:
                 st.warning(f"Tipo de arquivo não suportado: {file.name}")
                 continue
 
-            # Salva no session_state
             st.session_state.dataframes[name] = df
             st.session_state.processed_files.add(name)
-
         except Exception as e:
             st.error(f"Erro ao carregar '{file.name}': {e}")
 
-# Garante que loaded_data esteja sempre sincronizado com dataframes
+# Synch and resume.
 if "loaded_data" not in st.session_state:
     st.session_state.loaded_data = dict(st.session_state.dataframes)
 else:
-    # Verifica se há novos dataframes adicionados
     new_keys = set(st.session_state.dataframes.keys()) - set(st.session_state.loaded_data.keys())
     for key in new_keys:
         st.session_state.loaded_data[key] = st.session_state.dataframes[key]
 
-# Exibe os dataframes disponíveis
-if "loaded_data" in st.session_state and st.session_state.loaded_data:
     render_loaded_dataframes()
-    st.markdown("<br>", unsafe_allow_html=True)
+
+if st.session_state.loaded_data:
     merge_dataframes_with_fill(st.session_state.dataframes)
 else:
-    st.info("Nenhum dataframe disponível para análise.")
+    pass
