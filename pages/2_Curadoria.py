@@ -27,31 +27,80 @@ def remove_rows_with_repeated_value(df: pd.DataFrame, df_name: str):
     Returns:
         None.
     """
-    st.write("### Remoção por repetição excessiva de um valor específico")
-    st.caption("Remove linhas em que um mesmo valor (ex: 0, 1, 2...) aparece muitas vezes entre os itens selecionados.")
+    
+    st.write("### Distância Manhattan")
+
+    st.caption(f"""
+    A distância de Manhattan varia de 0 a 2:
+    - O valor `0` indica que o padrão de resposta da linha é idêntico à distribuição geral dos dados.
+    - Valores mais altos indicam que a distribuição das respostas dessa linha se afasta do padrão esperado.
+    """)
 
     numeric_cols = df.select_dtypes(include="number").columns.tolist()
     if not numeric_cols:
         st.warning("Este dataframe não possui colunas numéricas.")
         return
 
-    selected_cols = st.multiselect("Selecione os itens para verificar:", numeric_cols, key="cols_valor_check")
+    selected_cols = st.multiselect(" Selecione as colunas de interesse para identificar quais linhas têm maior desvio e podem ser consideradas atípicas:", numeric_cols, key="cols_valor_check")
     if not selected_cols:
         return
 
-    valor_alvo = st.number_input("Valor alvo a ser monitorado:", step=1, key="valor_alvo_check")
+    from scipy.spatial.distance import cityblock  # distância de Manhattan    
+    
+    # Detecta escala
+    min_val = int(df[selected_cols].min().min())
+    max_val = int(df[selected_cols].max().max())
+    escala = list(range(min_val, max_val+1))
 
+    st.markdown(f"Foram detectados `{len(escala)} rankings` com valores entre {min_val} e {max_val}.")
+
+    # Distribuição empírica real (em todos os itens selecionados)
+    all_values = df[selected_cols].values.flatten()
+    all_values = all_values[~pd.isnull(all_values)]
+    real_dist = pd.Series(all_values).value_counts(normalize=True).reindex(escala, fill_value=0)
+
+    st.caption("Distribuição empírica real nos dados (por ranking):")
+    st.write(real_dist.apply(lambda x: f"{x*100:.2f}%"))
+
+    # Função que calcula a distribuição por linha
+    def calc_linha_dist(row):
+        counts = row.value_counts(normalize=True).reindex(escala, fill_value=0)
+        return cityblock(counts.values, real_dist.values)
+    
+    # Aplica por linha
+    linha_desvios = df[selected_cols].apply(calc_linha_dist, axis=1)
+
+    threshold = st.slider("Mostrar linhas com desvio acima de: ", 0.0, float(linha_desvios.max()), 0.5, step=0.05)
+
+    # Filtra outliers
+    outliers = df[linha_desvios > threshold]
+    st.caption("Distância Manhattann computada com o módulo [spatial.distance](https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.distance.cityblock.html) da biblioteca ScyPy v1.16.1")
+    st.markdown(f"**🔍 {len(outliers)} linha(s) foram encontradas com desvio acima de {threshold}**")
+    if len(outliers) == 0:
+        pass
+    else:
+        st.dataframe(outliers[selected_cols])
+    
+
+    st.write("##### Remover linhas com valores muito repetidos")
+    st.caption("""
+    Remove linhas em que um mesmo valor (por exemplo, 0, 1, 2...) aparece repetidamente entre as colunas selecionadas. 
+    É útil para detectar padrões excessivamente homogêneos ou artificiais, como um participante que marcou "2" em quase todas as respostas de um questionário.
+    Você define o valor monitorado e quantas repetições são aceitáveis por linha.
+    """)
+    valor_alvo = st.number_input("Valor monitorado:", step=1, key="valor_alvo_check")
     max_freq = st.slider(
-        "Remover linhas onde o valor alvo aparece mais que este número de vezes:",
+        "Limite de repetições:",
         min_value=1,
         max_value=len(selected_cols),
         value=5,
         key="slider_freq_valor"
     )
+    
 
     placeholder_valor = st.empty()
 
-    if st.button("🚫 Remover por valor dominante", use_container_width=True):
+    if st.button("🧹 Limpar", use_container_width=True):
         try:
             # Conta quantas vezes o valor alvo aparece por linha
             freq_valor = df[selected_cols].apply(lambda row: (row == valor_alvo).sum(), axis=1)
@@ -67,8 +116,17 @@ def remove_rows_with_repeated_value(df: pd.DataFrame, df_name: str):
                 st.session_state.dataframes[df_name] = df
                 st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
                 placeholder_valor.success(f"{len(indices_repetidos)} linha(s) removida(s) com valor {valor_alvo} dominante.")
+                          
         except Exception as e:
             placeholder_valor.error(f"Erro: {e}")
+    st.info(
+        """
+        **Aggarwal, Hinneburg, & Keim (2001). On the Surprising Behavior of Distance Metrics in High Dimensional Space. In: Database Theory — ICDT 2001. Lecture Notes in Computer Science.** [doi](https://doi.org/10.1007/3-540-44503-X_27)
+        
+        O estudo investiga como diferentes métricas de distância se comportam em espaços de alta dimensionalidade — um cenário comum em aplicações de mineração de dados e aprendizado de máquina. Os autores demonstram que, à medida que as dimensões de um dataframe aumentam, a capacidade de distinção entre pontos próximos e distantes se deteriora, tornando a distância Euclidiana cada vez menos informativa. Em contraste, métricas como a distância Manhattan mantêm melhor o contraste entre vizinhos.
+        """,
+        icon="📜"
+        )
 
 def delete_rows_or_columns(df: pd.DataFrame, df_name: str) -> pd.DataFrame:
     """
@@ -236,7 +294,7 @@ def conditional_row_removal(df: pd.DataFrame, df_name: str):
     Returns:
         None.
     """
-    st.subheader("Remoção condicional de linhas")
+    st.write("### Remoção condicional")
     st.caption("Remova todas as linhas onde uma determinada condição seja satisfeita.")
 
     numeric_cols = df.select_dtypes(include="number").columns.tolist()
@@ -272,7 +330,7 @@ load_css()
 st.title("Curadoria")
 
 st.caption("""
-A seção **Curadoria** oferece ferramentas essenciais para limpeza e transformação de dados antes da análise estatística. 
+A seção de **curadoria** oferece ferramentas essenciais para limpeza e transformação de dados antes da análise estatística. 
 Permite remover linhas ou colunas manualmente, excluir registros com valores extremos, aplicar filtros condicionais e eliminar padrões de resposta redundantes (ex: repetições excessivas do mesmo valor).
 Também disponibiliza um sistema de **mapeamento categórico em lote**, que converte múltiplas variáveis qualitativas em códigos numéricos padronizados. 
 Ideal para garantir a qualidade e a consistência dos dados, preparando-os para análises psicométricas, estatísticas ou modelagens mais avançadas.
@@ -300,66 +358,58 @@ if selected_df_name not in df_names:
 
 selected_df_name = st.selectbox("Selecione o dataframe para análise:", df_names, index=df_names.index(selected_df_name))
 df = st.session_state.dataframes[selected_df_name]
-st.write(f"**Dimensões:** {df.shape[0]} × {df.shape[1]}")
 
 st.divider()
 
 # BODY ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-# Deleção de linhas ou colunas (reutilizável)
-df = delete_rows_or_columns(df, selected_df_name)
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-conditional_row_removal(df, selected_df_name)
-
-st.markdown("<br>", unsafe_allow_html=True)
-
 # Executa o mapeamento categórico em lote e sobrescreve o dataframe original
 st.session_state["__temp_df_for_mapping__"] = df.copy()
-
 batch_map_categorical_values(
     df_key_input="__temp_df_for_mapping__",
     df_key_output="__temp_df_for_mapping__",
     df_name=selected_df_name
    )
 
+st.divider()
+df = delete_rows_or_columns(df, selected_df_name)
 
-st.markdown("<br>", unsafe_allow_html=True)
+st.divider()
+conditional_row_removal(df, selected_df_name)
 
+st.divider()
 remove_rows_with_repeated_value(df, selected_df_name)
 
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# Controle do número de linhas com incremento nativo
-st.write("### Inspeção visual")
-num_rows = st.number_input(
-    "Número de linhas para inspeção visual:",
-    min_value=5,
-    max_value=100,
-    value=5,
-    step=5,
-    format="%d"
-)
-
-# Visualização do dataframe selecionado
-df = st.session_state.dataframes[selected_df_name]
-
-# Verificação de integridade antes da renderização
-if df is None or not isinstance(df, pd.DataFrame) or df.empty or df.shape[1] == 0:
-    st.warning(f"O dataframe '{selected_df_name}' está vazio ou inválido.")
-    st.stop()
-
-st.write(f"Visualizando as primeiras {num_rows} linhas de **{selected_df_name}**:")
-st.dataframe(df.head(num_rows), use_container_width=True)
-
+st.divider()
 if st.session_state.get("csv_transformado"):
-        st.write("### Baixar dataframe transformado")
+        st.write("### Baixar curadoria")
+        # Controle do número de linhas com incremento nativo
+        
+        st.write(f"**Dimensões:** {df.shape[0]} × {df.shape[1]}")
+
+        num_rows = st.number_input(
+            "Número de linhas para inspeção visual:",
+            min_value=5,
+            max_value=100,
+            value=5,
+            step=5,
+            format="%d"
+        )
+
+        # Visualização do dataframe selecionado
+        df = st.session_state.dataframes[selected_df_name]
+
+        # Verificação de integridade antes da renderização
+        if df is None or not isinstance(df, pd.DataFrame) or df.empty or df.shape[1] == 0:
+            st.warning(f"O dataframe '{selected_df_name}' está vazio ou inválido.")
+            st.stop()
+
+        st.write(f"Visualizando as primeiras {num_rows} linhas da curadoria:")
+        st.dataframe(df.head(num_rows), use_container_width=True)
         st.download_button(
             label="📥 Download (curadoria)",
             data=st.session_state["csv_transformado"],
-            file_name=f"{selected_df_name}_filtrado.csv",
+            file_name=f"{selected_df_name}_curado.csv",
             mime="text/csv",
             use_container_width=True
         )

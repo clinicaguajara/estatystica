@@ -10,6 +10,171 @@ from utils.design import load_css
 
 # CUSTOM FUNCTIONS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
+def mediation_analysis(df: pd.DataFrame):
+    """
+    Executa análise de mediação simples (X → M → Y), com:
+      • Gráfico de barras (efeitos direto, indireto e total) em tema escuro + download em claro/escuro
+      • Diagrama alluvial (Sankey) com Plotly em tema escuro + download em claro/escuro
+    """
+    import plotly.graph_objects as go
+    import copy
+    import matplotlib.pyplot as plt
+    import io
+
+    from statsmodels.formula.api import ols
+    
+    # Seleção de variáveis
+    st.write("### Análise de Mediação")
+    st.caption("Selecione X (independente), M (mediadora) e Y (dependente).")
+
+    numeric = df.select_dtypes(include="number").columns.tolist()
+    if len(numeric) < 3:
+        st.warning("É necessário pelo menos 3 variáveis numéricas.")
+        return
+    
+    X = st.selectbox("X:", numeric, key="med_x")
+    M = st.selectbox("M:", [c for c in numeric if c != X], key="med_m")
+    Y = st.selectbox("Y:", [c for c in numeric if c not in (X, M)], key="med_y")
+
+    # Ajuste dos modelos
+    m_mod     = ols(f"{M} ~ {X}", data=df).fit()
+    y_mod     = ols(f"{Y} ~ {X} + {M}", data=df).fit()
+    total_mod = ols(f"{Y} ~ {X}", data=df).fit()
+
+    a        = m_mod.params[X]
+    b        = y_mod.params[M]
+    c_prime  = y_mod.params[X]
+    c_total  = total_mod.params[X]
+    indirect = a * b
+
+    # Exibe coeficientes
+    st.markdown(f"""
+    **Resultado**  
+    - Caminho a ({X} ➝ {M}): `{a:.3f}`  
+    - Caminho b ({M} ➝ {Y}): `{b:.3f}`  
+    - Total c ({X} ➝ {Y}): `{c_total:.3f}`  
+    - Efeito direto (controlando M): `{c_prime:.3f}`  
+    - Efeito indireto (a×b): `{indirect:.3f}`  
+    """)
+
+    # ─── BARRAS MATPLOTLIB ─────────────────────────────────────
+    effects = pd.DataFrame({
+        "Efeito": ["Direto (c′)", "Indireto (a×b)", "Total (c)"],
+        "Valor": [c_prime, indirect, c_total]
+    })
+    dark_bg, white, purple = "#0E1117", "#FFFFFF", "#7159c1"
+
+    # Barras tema escuro
+    fig_bar_d, ax_bar_d = plt.subplots(figsize=(6,3.5), facecolor=dark_bg)
+    ax_bar_d.set_facecolor(dark_bg)
+    bars = ax_bar_d.bar(effects["Efeito"], effects["Valor"],
+                        color=purple, edgecolor=white, linewidth=1.5, alpha=0.8)
+    ax_bar_d.axhline(0, color=white, linewidth=1.5)
+    ax_bar_d.tick_params(colors=white)
+    for spine in ax_bar_d.spines.values():
+        spine.set_edgecolor(white)
+
+    plt.tight_layout()
+    st.pyplot(fig_bar_d)
+
+    # Prepara buffers de download para barras
+    buf_bar_d = io.BytesIO()
+    fig_bar_d.savefig(buf_bar_d, format="png", facecolor=dark_bg)
+    buf_bar_d.seek(0)
+
+    # Gráfico claro apenas para download
+    fig_bar_l, ax_bar_l = plt.subplots(figsize=(6,3.5), facecolor="white")
+    ax_bar_l.axhline(0, color="black", linewidth=1)
+
+    plt.tight_layout()
+    buf_bar_l = io.BytesIO()
+    fig_bar_l.savefig(buf_bar_l, format="png", facecolor="white")
+    buf_bar_l.seek(0)
+
+    # ─── BOTÕES DE DOWNLOAD BARRAS ──────────────────────────────────────────────────────
+    c1, c2 = st.columns(2)
+    with c1:
+        st.download_button("📥 Download (escuro)",
+                           data=buf_bar_d, file_name="mediacao_bar_dark.png",
+                           mime="image/png", use_container_width=True)
+    with c2:
+        st.download_button("📥 Download (claro)",
+                           data=buf_bar_l, file_name="mediacao_bar_light.png",
+                           mime="image/png", use_container_width=True)
+
+    st.caption("Cálculo inferencial [Statsmodels](https://www.statsmodels.org/stable/index.html) v0.14.4 | Plotagem [Matplotlib](https://matplotlib.org/stable/index.html) v3.10.5")
+
+    # ─── SANKEY INTERATIVO EM TEMA ESCURO ─────────────────────────────────────────
+    st.write("### Diagrama de Sankey")
+    st.caption("O gráfico alluvial  —ou diagrama de Sankey — é um tipo de visualização que mostra como quantidades fluem entre diferentes categorias ou etapas de um processo. Ele é particularmente útil para representar relações causais, transições, partições e redistribuições de valores entre grupos.")
+    
+    fig_snk_d = go.Figure(go.Sankey(
+        arrangement="snap",
+        node=dict(
+            label=[X, M, Y],
+            pad=15,
+            thickness=20,
+            color="#0E1117",
+            line=dict(color="white", width=1)
+        ),
+        link=dict(
+            source=[0, 1, 0],
+            target=[1, 2, 2],
+            value=[abs(a), abs(indirect), abs(c_prime)],
+            color=[
+                "rgba(113,89,193,0.8)" if a >= 0 else "rgba(193,89,113,0.8)",
+                "rgba(113,89,193,0.8)" if indirect >= 0 else "rgba(193,89,113,0.8)",
+                "rgba(113,89,193,0.8)" if c_prime >= 0 else "rgba(193,89,113,0.8)"
+            ]
+        )
+    ))
+    
+    fig_snk_d.update_layout(
+        paper_bgcolor="#0E1117",
+        font=dict(color="black", size=14),
+        margin=dict(l=10, r=10, t=30, b=10)
+    )
+
+    # Exibe interativamente no tema escuro
+    st.plotly_chart(fig_snk_d, use_container_width=True)
+
+    # ─── PREPARA DOIS HTMLs INTERATIVOS PARA DOWNLOAD ─────────────────────────────
+    
+    # Cria versão clara do gráfico para download
+    fig_snk_g = copy.deepcopy(fig_snk_d)
+    fig_snk_g.update_layout(
+        paper_bgcolor="gray",
+        font=dict(color="black", size=14)
+    )
+    html_dark = fig_snk_g.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
+
+    # Cria versão clara do gráfico para download
+    fig_snk_l = copy.deepcopy(fig_snk_d)
+    fig_snk_l.update_layout(
+        paper_bgcolor="white",
+        font=dict(color="black", size=14)
+    )
+    html_light = fig_snk_l.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
+
+    # ─── BOTÕES DE DOWNLOAD ALLUVIAL ──────────────────────────────────────────────────────
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button(
+            label="📥 Download (tema escuro)",
+            data=html_dark,
+            file_name="mediacao_sankey_dark.html",
+            mime="text/html",
+            use_container_width=True
+        )
+    with col2:
+        st.download_button(
+            label="📥 Download (tema claro)",
+            data=html_light,
+            file_name="mediacao_sankey_light.html",
+            mime="text/html",
+            use_container_width=True
+        )
+
 def correlation_analysis(df: pd.DataFrame):
     """
     Calcula e exibe uma matriz de correlação com coeficientes e valores-p combinados,
@@ -18,8 +183,6 @@ def correlation_analysis(df: pd.DataFrame):
     
     import seaborn as sns
     from scipy.stats import pearsonr, spearmanr, kendalltau
-
-    st.write("### 🔗 Correlação entre Variáveis")
 
     numeric_cols = df.select_dtypes(include="number").columns.tolist()
     if len(numeric_cols) < 2:
@@ -216,8 +379,6 @@ def linear_regression_analysis(df: pd.DataFrame):
     Realiza regressão linear simples entre duas variáveis numéricas, com visualização gráfica e download.
     """
 
-    st.write("### 📈 Regressão Linear Simples")
-
     numeric_cols = df.select_dtypes(include="number").columns.tolist()
     if len(numeric_cols) < 2:
         st.warning("É necessário pelo menos duas variáveis numéricas.")
@@ -333,7 +494,6 @@ df_names = list(st.session_state.dataframes.keys())
 
 selected_df_name = st.selectbox("Selecione o dataframe para análise:", df_names)
 df = st.session_state.dataframes[selected_df_name]
-st.write(f"**Dimensões:** {df.shape[0]} × {df.shape[1]}")
 
 num_cols = df.select_dtypes(include="number").columns.tolist()
 if not num_cols:
@@ -349,31 +509,24 @@ st.write("### Gráfico de dispersão")
 st.caption("Visualize a relação entre duas variáveis numéricas em um plano cartesiano (scatter plot).")
 scatter_visualizer(df)
 
+st.divider()
 
-st.markdown("<br>", unsafe_allow_html=True)
+st.write("### Testagem de associação entre variáveis")
 
-with st.expander("Testes de Correlação"):
+with st.expander("Correlação"):
     st.markdown("<br>", unsafe_allow_html=True)
     correlation_analysis(df)
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.caption("Cálculo inferencial [SciPy](https://docs.scipy.org/doc/scipy/) v.1.16.1 | Heatmap [Seaborn](https://seaborn.pydata.org/) 0.13.2")
 
 
-with st.expander("Regressão Linear"):   
-    st.markdown("<br>", unsafe_allow_html=True)
+with st.expander("Regressão linear simples"): 
+    st.markdown("<br>", unsafe_allow_html=True) 
     linear_regression_analysis(df)
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.caption("Cálculo inferencial [Statsmodels](https://www.statsmodels.org/stable/index.html) v0.14.4 | Plotagem [Matplotlib](https://matplotlib.org/stable/index.html) v3.10.52")
 
-st.markdown("<br>", unsafe_allow_html=True)
 
-# How to cite
-st.info(
-    """**Como citar as bibliotecas utilizadas nesta página?**
-- **pandas**: McKinney, W. (2010). Data Structures for Statistical Computing in Python. *Proceedings of the 9th Python in Science Conference*, 51-56.
-- **matplotlib**: Hunter, J. D. (2007). Matplotlib: A 2D Graphics Environment. *Computing in Science & Engineering*, 9(3), 90-95.
-- **seaborn**: Waskom, M., et al. (2021). seaborn: statistical data visualization. *Journal of Open Source Software*, 6(60), 3021.
-- **SciPy**: Virtanen, P., et al. (2020). SciPy 1.0: Fundamental Algorithms for Scientific Computing in Python. *Nature Methods*, 17, 261–272.
-- **statsmodels**: Seabold, S., & Perktold, J. (2010). Statsmodels: Econometric and statistical modeling with Python. *Proceedings of the 9th Python in Science Conference*, 92-96.
-- **streamlit**: Streamlit Inc. (2019). Streamlit: turning data scripts into shareable web applications.
-""",
-    icon="ℹ️"
-)
+with st.expander("Análise de mediação"):
+    st.markdown("<br>", unsafe_allow_html=True) 
+    mediation_analysis(df)
+    st.caption("Cálculo inferencial [Statsmodels](https://www.statsmodels.org/stable/index.html) v0.14.4 | Diagrama [Plotly](https://plotly.com/) v2.30")
+
