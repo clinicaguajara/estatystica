@@ -180,6 +180,7 @@ def delete_rows_or_columns(df: pd.DataFrame, df_name: str) -> pd.DataFrame:
                     st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
                 else:
                     df.drop(columns=to_remove, inplace=True)
+                    st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
 
                 # evita DataFrame sem colunas
                 if df.shape[1] == 0:
@@ -270,7 +271,10 @@ def batch_map_categorical_values(df_key_input="raw_df", df_key_output="numeric_d
             if df_key_input == df_key_output == "__temp_df_for_mapping__":
                 st.session_state.dataframes[df_name] = df_original
 
+            st.session_state["csv_transformado"] = df_original.to_csv(index=False).encode("utf-8")
+
             placeholder_map.success("Mapeamento aplicado com sucesso!")
+            
             
             st.subheader("Prévia dos dados transformados")
             st.dataframe(df_original[selected_columns].head())

@@ -215,6 +215,7 @@ with st.expander("Reescalar itens com base 0", expanded=False):
             df[item] = df[item] + 1
         st.success(f"Ajuste aplicado: {len(itens_ajuste)} item(ns) foram incrementados em +1.")
         st.session_state.dataframes[selected_df_name] = df
+        st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
 
 with st.expander("Inversão de itens", expanded=False):
     
@@ -251,6 +252,7 @@ with st.expander("Inversão de itens", expanded=False):
                 df[item] = (max_val + 1) - df[item]
             placeholder_invert.success(f"Reversão aplicada para {len(itens_reversos)} item(ns).")
             st.session_state.dataframes[selected_df_name] = df
+            st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
 
 # ───────────────────────────────────────────────────────────
 st.subheader("Criar escala a partir de um conjunto de itens")
@@ -320,6 +322,7 @@ if st.button("Criar escala", use_container_width=True):
         if save_to_df:
             df[scale_name] = new_series
             st.session_state.dataframes[selected_df_name] = df
+            st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
             placeholder_scales.success(f"Escala '{scale_name}' adicionada ao dataframe.")
         else:
             placeholder_scales.info(f"Escala '{scale_name}' salva na sessão.")
@@ -384,6 +387,7 @@ if escalas_dict:
             if save_factor:
                 df[nome_coluna] = valores_fator
                 st.session_state.dataframes[selected_df_name] = df
+                st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
                 placehold_add_factor.success(
                     f"Fator '{nome_fator}' adicionado e salvo como coluna '{nome_coluna}'."
                 )
@@ -427,3 +431,11 @@ for nome, dados in escalas_dict.items():
 
 
 render_psychometric_properties(df, escalas_dict)
+
+st.download_button(
+    label="📥 Download dataframe transformado",
+    data=st.session_state["csv_transformado"],
+    file_name=f"{selected_df_name}_curado.csv",
+    mime="text/csv",
+    use_container_width=True
+)
