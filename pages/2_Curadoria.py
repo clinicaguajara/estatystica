@@ -74,7 +74,7 @@ def remove_rows_with_repeated_value(df: pd.DataFrame, df_name: str):
 
     # Filtra outliers
     outliers = df[linha_desvios > threshold]
-    st.caption("Distância Manhattann computada com o módulo [spatial.distance](https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.distance.cityblock.html) da biblioteca ScyPy v1.16.1")
+    st.caption("Distância Manhattann computada com o módulo [spatial.distance](https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.distance.cityblock.html) da biblioteca ScyPy v1.13.1")
     st.markdown(f"**🔍 {len(outliers)} linha(s) foram encontradas com desvio acima de {threshold}**")
     if len(outliers) == 0:
         pass
