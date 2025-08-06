@@ -45,11 +45,35 @@ def sem_mediation_analysis(df: pd.DataFrame):
     sem = Model(model_desc)
     sem.fit(df_nona)
 
-    # 3) Estimativas principais
+    # 2.1) Sanitização de nomes para semopy
+    orig = [X, M, Y]
+    san = {orig[i]: f"V{i}" for i in range(3)}
+    # reamostra só as 3 variáveis, renomeando
+    df_sem = df[orig].dropna().rename(columns=san)
+    X_s, M_s, Y_s = san[X], san[M], san[Y]
+
+    # 2.2) Ajuste do SEM com nomes sanitizados
+    model_desc = f"""
+    {M_s} ~ a*{X_s}
+    {Y_s} ~ b*{M_s} + c*{X_s}
+    """
+    sem = Model(model_desc)
+    sem.fit(df_sem)
+
+    # 3) Estimativas principais (usando san[original])
     params = sem.inspect(std_est=True)
-    a = float(params.loc[(params["lval"] == M) & (params["op"] == "~") & (params["rval"] == X), "Estimate"].iloc[0])
-    b = float(params.loc[(params["lval"] == Y) & (params["op"] == "~") & (params["rval"] == M), "Estimate"].iloc[0])
-    c_prime = float(params.loc[(params["lval"] == Y) & (params["op"] == "~") & (params["rval"] == X), "Estimate"].iloc[0])
+    a = float(params.loc[
+        (params["lval"] == M_s) & (params["op"] == "~") & (params["rval"] == X_s),
+        "Estimate"
+    ].iloc[0])
+    b = float(params.loc[
+        (params["lval"] == Y_s) & (params["op"] == "~") & (params["rval"] == M_s),
+        "Estimate"
+    ].iloc[0])
+    c_prime = float(params.loc[
+        (params["lval"] == Y_s) & (params["op"] == "~") & (params["rval"] == X_s),
+        "Estimate"
+    ].iloc[0])
     indirect = a * b
     total = c_prime + indirect
 
@@ -68,6 +92,15 @@ def sem_mediation_analysis(df: pd.DataFrame):
 
     # 6) Tabela de coeficientes SEM com índice personalizado
     path_params = params[params["op"] == "~"]
+
+    # mapa inverso para voltar aos nomes originais
+    inv_san = {v: k for k, v in san.items()}
+
+    # substitui V0, V1, V2 por X, M, Y originais
+    path_params = path_params.copy()  # para evitar warning de pandas
+    path_params["lval"] = path_params["lval"].map(inv_san)
+    path_params["rval"] = path_params["rval"].map(inv_san)
+
 
     columns_map = {
         "Estimate": "Coeficiente",
