@@ -40,6 +40,13 @@ def sem_mediation_analysis(df: pd.DataFrame):
     orig = [X, M, Y]
     san = {orig[i]: f"V{i}" for i in range(3)}  # ex: {'PID-5-BF': 'V0', 'LSM-21': 'V1', 'AQ-50': 'V2'}
     df_sem = df[orig].dropna().rename(columns=san)
+
+    # Opção de normalizar variáveis
+    normalize = st.checkbox("Normalizar variáveis (z-score) para interpretação padronizada", value=False)
+    if normalize:
+        df_sem = (df_sem - df_sem.mean()) / df_sem.std()
+
+
     X_s, M_s, Y_s = san[X], san[M], san[Y]
 
     # 2.1) Sanitização de nomes para semopy
