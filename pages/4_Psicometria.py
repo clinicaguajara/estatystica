@@ -216,104 +216,181 @@ with st.expander("Reescalar itens com base 0", expanded=False):
         st.success(f"Ajuste aplicado: {len(itens_ajuste)} item(ns) foram incrementados em +1.")
         st.session_state.dataframes[selected_df_name] = df
 
-
 with st.expander("Inversão de itens", expanded=False):
     
     st.markdown("<br>", unsafe_allow_html=True)
-    st.caption("Selecione os itens cujos valores devem ser revertidos e defina a escala máxima de cada um.")
+    st.caption(
+        "Selecione os itens cujos valores devem ser revertidos; "
+        "o sistema detecta automaticamente o valor máximo observado, exibe e permite reverter em lote."
+    )
     
     itens_reversos = st.multiselect(
         "Itens a serem revertidos:",
-        options=df.columns.tolist(),  # ou selected_cols / todos_itens
+        options=df.columns.tolist(),
         key="itens_para_reversao"
     )
 
-    maximos = {}
     if itens_reversos:
-        st.markdown("#### Defina o valor máximo da escala para cada item:")
-        for item in itens_reversos:
-            maximos[item] = st.number_input(
-                f"Máximo da escala para o item `{item}`:",
-                min_value=2,
-                max_value=10,
-                value=4,
-                step=1,
-                key=f"maximo_{item}"
-            )
+        # 1) detecta máximo observado em cada coluna
+        maximos_detectados = {item: int(df[item].max()) for item in itens_reversos}
 
-        aplicar_reversao = st.button("Reverter", use_container_width=True, key="btn_aplicar_reversao")
+        # 2) exibe para o usuário
+        st.markdown("#### Máximos detectados para cada item:")
+        for item, max_val in maximos_detectados.items():
+            st.write(f"- `{item}`: {max_val}")
 
-        if aplicar_reversao:
-            for item, max_val in maximos.items():
+        placeholder_invert =st.empty()
+
+        # 3) botão único para reverter tudo
+        if st.button(
+            "Reverter itens selecionados",
+            use_container_width=True,
+            key="btn_aplicar_reversao"
+        ):
+            for item, max_val in maximos_detectados.items():
                 df[item] = (max_val + 1) - df[item]
-            st.success(f"Reversão aplicada: {len(maximos)} item(ns) foram invertidos.")
+            placeholder_invert.success(f"Reversão aplicada para {len(itens_reversos)} item(ns).")
             st.session_state.dataframes[selected_df_name] = df
 
-
-# ───────────────────────────────────────────────────────────
-# SEÇÃO 1 — CRIAR NOVA ESCALA (agora com st.form)
 # ───────────────────────────────────────────────────────────
 st.subheader("Criar escala a partir de um conjunto de itens")
+st.caption("O somatório das novas escalas será mostrado e, opcionalmente, adicionado ao dataframe atual.")
 
-with st.form("form_criar_escala"):
-    selected_cols = st.multiselect("Itens para compor a escala", num_cols, key="escala_itens")
-    scale_name = st.text_input("Nome da nova escala (ex: BIS_Total)", key="escala_nome")
-    
-    placeholder_scales = st.empty()
-    
-    submitted = st.form_submit_button("Criar escala", use_container_width=True)
+# 1) Escolha de itens e tipo de soma
+selected_cols = st.multiselect(
+    "Itens para compor a escala",
+    num_cols,
+    key="escala_itens"
+)
+sum_type = st.radio(
+    "Tipo de somatório:",
+    ["Normal", "Binário"],
+    horizontal=True,
+    key="escala_sum_type"
+)
 
-    if submitted:
-        if not selected_cols:
-            st.error("Selecione pelo menos um item.")
-        elif not scale_name:
-            st.error("Defina um nome para a escala.")
-        elif scale_name in df.columns:
-            st.error("Já existe uma coluna com esse nome.")
+# 2) Threshold (apenas para binário)
+threshold = None
+if sum_type == "Binário" and selected_cols:
+    min_val = int(df[selected_cols].min().min())
+    max_val = int(df[selected_cols].max().max())
+    st.caption("Cada item com valor maior ou igual ao limiar (threshold) contribui com 1 ponto. Abaixo dele, ponto zero.")
+    threshold = st.number_input(
+        "Threshold:",
+        min_value=min_val,
+        max_value=max_val,
+        value=(min_val + max_val) // 2,
+        step=1,
+        format="%d",
+        key="escala_threshold"
+    )
+
+# 3) Nome da escala
+scale_name = st.text_input(
+    "Nome da nova escala:",
+    key="escala_nome"
+)
+
+# 4) Opção de salvar no df
+save_to_df = st.checkbox("Salvar a escala no dataframe atual?", value=False, key="escala_save")
+
+placeholder_scales = st.empty()
+
+# 5) Criação
+if st.button("Criar escala", use_container_width=True):
+    # validações
+    if not selected_cols:
+        st.error("Selecione pelo menos um item.")
+    elif not scale_name:
+        st.error("Defina um nome para a escala.")
+    elif save_to_df and scale_name in df.columns:
+        st.error("Já existe uma coluna com esse nome.")
+    else:
+        # cálculo da série
+        if sum_type == "Normal":
+            new_series = df[selected_cols].sum(axis=1)
         else:
-            df[scale_name] = df[selected_cols].sum(axis=1)
-            escalas_dict[scale_name] = {
-                "itens": selected_cols,
-                "valores": df[scale_name].tolist(),
-                "fatores": {}
-            }
-            st.session_state.dataframes[selected_df_name] = df
-            placeholder_scales.success(f"Escala '{scale_name}' criada com sucesso.")
+            new_series = (df[selected_cols] >= threshold).sum(axis=1)
 
+        # mostra na tela
+        st.write("#### Primeiro valores da escala criada:")
+        st.dataframe(new_series.to_frame(scale_name).head())
+
+        # salva se pedido
+        if save_to_df:
+            df[scale_name] = new_series
+            st.session_state.dataframes[selected_df_name] = df
+            placeholder_scales.success(f"Escala '{scale_name}' adicionada ao dataframe.")
+        else:
+            placeholder_scales.info(f"Escala '{scale_name}' salva na sessão.")
+
+        # guarda metadados sempre
+        escalas_dict[scale_name] = {
+            "itens": selected_cols,
+            "tipo": sum_type,
+            "threshold": threshold,
+            "valores": new_series.tolist(),
+            "fatores": {}
+        }
 
 # ───────────────────────────────────────────────────────────
 # SEÇÃO 3 — DEFINIR FATORES EM UMA ESCALA
 # ───────────────────────────────────────────────────────────
 if escalas_dict:
     st.subheader("Definir fatores")
-    escala_selecionada = st.selectbox("Escolha a escala-alvo", list(escalas_dict.keys()), key="escala_fator")
+    escala_selecionada = st.selectbox(
+        "Escolha a escala-alvo",
+        list(escalas_dict.keys()),
+        key="escala_fator"
+    )
     escala_data = escalas_dict[escala_selecionada]
     todos_itens = escala_data["itens"]
     fatores_atuais = escala_data.get("fatores", {})
 
     with st.form("form_fator"):
-        nome_fator = st.text_input("Nome do novo fator")
-        itens_fator = st.multiselect("Itens que compõem este fator", todos_itens)
+        nome_fator = st.text_input("Nome do novo fator", key="input_fator_nome")
+        itens_fator = st.multiselect(
+            "Itens que compõem este fator",
+            todos_itens,
+            key="multiselect_fator_itens"
+        )
+        save_factor = st.checkbox(
+            "Salvar este fator no dataframe atual?",
+            value=False,
+            key="save_fator_checkbox"
+        )
 
         placehold_add_factor = st.empty()
-
-        criar_fator = st.form_submit_button("Adicionar fator", use_container_width=True)
+        criar_fator = st.form_submit_button(
+            "Adicionar fator",
+            use_container_width=True
+        )
     
     if criar_fator:
         if not nome_fator or not itens_fator:
-            st.error("Preencha o nome e selecione pelo menos um item.")
+            st.error("Preencha o nome do fator e selecione pelo menos um item.")
         else:
+            # Calcula os valores do fator
             valores_fator = df[itens_fator].sum(axis=1).tolist()
-            escala_data["fatores"][nome_fator] = {
+            
+            # Armazena no dicionário interno
+            escala_data.setdefault("fatores", {})[nome_fator] = {
                 "itens": itens_fator,
                 "valores": valores_fator
             }
-            # Adiciona a nova coluna no dataframe
-            nome_coluna = f"{escala_selecionada}_{nome_fator}"
-            df[nome_coluna] = valores_fator
-            st.session_state.dataframes[selected_df_name] = df
-            placehold_add_factor.success(f"Fator '{nome_fator}' adicionado à escala '{escala_selecionada}'.")
 
+            # Se o usuário marcou para salvar, cria a coluna no DataFrame
+            nome_coluna = f"{escala_selecionada}_{nome_fator}"
+            if save_factor:
+                df[nome_coluna] = valores_fator
+                st.session_state.dataframes[selected_df_name] = df
+                placehold_add_factor.success(
+                    f"Fator '{nome_fator}' adicionado e salvo como coluna '{nome_coluna}'."
+                )
+            else:
+                placehold_add_factor.info(
+                    f"Fator '{nome_fator}' criado em memória, mas NÃO salvo no DataFrame."
+                )
 
 # ───────────────────────────────────────────────────────────
 # SEÇÃO 4 — VISUALIZAR ESCALAS E FATORES

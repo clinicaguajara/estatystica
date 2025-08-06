@@ -214,7 +214,7 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-st.write("### 🗃️ Dataframes disponíveis")
+st.write("### Dataframes disponíveis")
 
 # Processa os arquivos carregados
 if uploaded_files:

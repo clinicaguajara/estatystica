@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import statsmodels.api as sm
 from utils.design import load_css
+import plotly.express as px
+import plotly.graph_objects as go
 
 # CUSTOM FUNCTIONS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 # SEM Mediation Analysis
@@ -22,7 +24,6 @@ def sem_mediation_analysis(df: pd.DataFrame):
     import pandas as pd
     import matplotlib.pyplot as plt
     import io
-    import copy
     import numpy as np
     import plotly.graph_objects as go
     from semopy import Model
@@ -183,10 +184,7 @@ def mediation_analysis(df: pd.DataFrame):
       • Gráfico de barras (efeitos direto, indireto e total) em tema escuro + download em claro/escuro
       • Diagrama alluvial (Sankey) com Plotly em tema escuro + download em claro/escuro
     """
-    import plotly.graph_objects as go
     import copy
-    import matplotlib.pyplot as plt
-    import io
 
     from statsmodels.formula.api import ols
     
@@ -512,7 +510,7 @@ def correlation_analysis(df: pd.DataFrame):
         col1, col2 = st.columns(2)
         with col1:
             st.download_button(
-                label="📥 Download Heatmap (tema escuro)",
+                label="📥 Download (tema escuro)",
                 data=dark_buf,
                 file_name="heatmap_correlacao_dark.png",
                 mime="image/png",
@@ -527,79 +525,65 @@ def correlation_analysis(df: pd.DataFrame):
                 use_container_width=True
             )
 
-def scatter_visualizer(df: pd.DataFrame):
+def scatter_interactive(df):
     """
-    Exibe gráfico de dispersão entre duas variáveis numéricas, com opção de download nos temas claro e escuro.
+    Torna interativo um scatter plot:
+    - Escolha de eixos X e Y (somente numéricos)
+    - Tema escuro
+    - Botões de download HTML para dark e light
     """
-
-    numeric_cols = df.select_dtypes(include="number").columns.tolist()
-    if len(numeric_cols) < 2:
-        st.warning("É necessário pelo menos duas variáveis numéricas.")
+    # 1) Verifica colunas numéricas
+    num_cols = df.select_dtypes(include="number").columns.tolist()
+    if len(num_cols) < 2:
+        st.warning("Seu DataFrame precisa ter ao menos 2 colunas numéricas.")
         return
 
-    col1 = st.selectbox("Eixo X:", numeric_cols, key="scatter_x")
-    col2 = st.selectbox("Eixo Y:", [c for c in numeric_cols if c != col1], key="scatter_y")
-    
+    # 2) Seletor de eixos
+    x = st.selectbox("Eixo X:", num_cols, key="sc_x")
+    y = st.selectbox("Eixo Y:", [c for c in num_cols if c != x], key="sc_y")
+
     st.markdown("<br>", unsafe_allow_html=True)
-    
-    # ───────────────────────────────────────────────────────
-    # Gráfico modo escuro
-    dark_bg = "#0E1117"
-    white = "#FFFFFF"
-    purple = "#7159c1"
 
-    fig, ax = plt.subplots(facecolor=dark_bg)
-    ax.set_facecolor(dark_bg)
+    # 3) Monta o gráfico com tema escuro
+    custom_color = "rgba(98, 75, 175, 0.808)"
+    fig_dark = px.scatter(
+        df,
+        x=x,
+        y=y,
+        opacity=0.75,
+        template="plotly_dark",
+        color_discrete_sequence=[custom_color]
+    )
+    fig_dark.update_traces(marker=dict(size=6, line=dict(width=0)))
 
-    ax.scatter(df[col1], df[col2], color=purple, alpha=0.7, edgecolors=white)
-    ax.set_xlabel(col1, color=white)
-    ax.set_ylabel(col2, color=white)
+    st.plotly_chart(fig_dark, use_container_width=True)
 
-    ax.tick_params(colors=white)
-    for spine in ax.spines.values():
-        spine.set_edgecolor(white)
+    # 4) Prepara HTML para download
+    html_dark = fig_dark.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
 
-    plt.tight_layout()
-    st.pyplot(fig)
+    fig_light = fig_dark.to_html()  # workaround: clonamos a saída
+    # para gerar versão clara, recarregamos como objeto
+    import plotly.io as pio
+    fig_light = pio.from_json(fig_dark.to_json())
+    fig_light.update_layout(template="plotly_white")
+    html_light = fig_light.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
 
-    # ───────────────────────────────────────────────────────
-    # Download dos gráficos
-
-    dark_buf = io.BytesIO()
-    fig.savefig(dark_buf, format="png")
-    dark_buf.seek(0)
-
-    # Tema claro
-    plt.style.use("default")
-    light_fig, light_ax = plt.subplots(facecolor="white")
-    light_ax.set_facecolor("white")
-    light_ax.scatter(df[col1], df[col2], color=purple, alpha=0.7, edgecolors="white")
-    light_ax.set_title(f"{col2} vs {col1}")
-    light_ax.set_xlabel(col1)
-    light_ax.set_ylabel(col2)
-
-    light_fig.tight_layout()
-    light_buf = io.BytesIO()
-    light_fig.savefig(light_buf, format="png", facecolor="white")
-    light_buf.seek(0)
-
-    # ───────────────────────────────────────────────────────
-    # Botões de download
-    col_dl1, col_dl2 = st.columns(2)
-    with col_dl1:
+    # 5) Botões de download
+    c1, c2 = st.columns(2)
+    with c1:
         st.download_button(
-            label="📥 Download (tema escuro)",
-            data=dark_buf,
-            file_name=f"{col2}_vs_{col1}_dark.png",
-            mime="image/png",
+            "📥 Download (tema escuro)",
+            data=html_dark,
+            file_name=f"scatter_{x}_{y}_dark.html",
+            mime="text/html",
             use_container_width=True
         )
-    with col_dl2:
+    with c2:
         st.download_button(
-            label="📥 Download (tema claro)",
-            data=light_buf,
-            file_name=f"{col2}_vs_{col1}_light.png",
-            mime="image/png",
+            "📥 Download (tema claro)",
+            data=html_light,
+            file_name=f"scatter_{x}_{y}_light.html",
+            mime="text/html",
             use_container_width=True
         )
 
@@ -736,31 +720,50 @@ st.divider()
 # Executa os módulos de inferência
 st.write("### Gráfico de dispersão")
 st.caption("Visualize a relação entre duas variáveis numéricas em um plano cartesiano (scatter plot).")
-scatter_visualizer(df)
+
+scatter_interactive(df)
 
 st.divider()
 
 st.write("### Testagem de associação entre variáveis")
 
-with st.expander("Correlação"):
-    st.markdown("<br>", unsafe_allow_html=True)
+option = st.radio(
+    "Selecione o tipo de análise:",
+    [
+        "Correlação",
+        "Regressão linear simples",
+        "Análise de mediação",
+        "Modelagem de equações estruturais"
+    ]
+)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+if option == "Correlação":
     correlation_analysis(df)
-    st.caption("Cálculo inferencial [SciPy](https://docs.scipy.org/doc/scipy/) v.1.16.1 | Heatmap [Seaborn](https://seaborn.pydata.org/) 0.13.2")
+    st.caption(
+        "Cálculo inferencial [SciPy](https://docs.scipy.org/doc/scipy/) v.1.16.1 | "
+        "Heatmap [Seaborn](https://seaborn.pydata.org/) 0.13.2"
+    )
 
-
-with st.expander("Regressão linear simples"): 
-    st.markdown("<br>", unsafe_allow_html=True) 
+elif option == "Regressão linear simples":
     linear_regression_analysis(df)
-    st.caption("Cálculo inferencial [Statsmodels](https://www.statsmodels.org/stable/index.html) v0.14.4 | Plotagem [Matplotlib](https://matplotlib.org/stable/index.html) v3.10.52")
+    st.caption(
+        "Cálculo inferencial [Statsmodels](https://www.statsmodels.org/stable/index.html) v0.14.4 | "
+        "Plotagem [Matplotlib](https://matplotlib.org/stable/index.html) v3.10.52"
+    )
 
-
-with st.expander("Análise de mediação"):
-    st.markdown("<br>", unsafe_allow_html=True) 
+elif option == "Análise de mediação":
     mediation_analysis(df)
-    st.caption("Cálculo inferencial [Statsmodels](https://www.statsmodels.org/stable/index.html) v0.14.4 | Diagrama [Plotly](https://plotly.com/) v2.30")
+    st.caption(
+        "Cálculo inferencial [Statsmodels](https://www.statsmodels.org/stable/index.html) v0.14.4 | "
+        "Diagrama [Plotly](https://plotly.com/) v2.30"
+    )
 
-with st.expander("Modelagem de equações estruturais"):
-    st.markdown("<br>", unsafe_allow_html=True) 
+elif option == "Modelagem de equações estruturais":
     sem_mediation_analysis(df)
-    st.caption("Cálculo inferencial [Statsmodels](https://www.statsmodels.org/stable/index.html) v0.14.4 | Diagrama [Plotly](https://plotly.com/) v2.30")
+    st.caption(
+        "Cálculo inferencial [Statsmodels](https://www.statsmodels.org/stable/index.html) v0.14.4 | "
+        "Diagrama [Plotly](https://plotly.com/) v2.30"
+    )
 
