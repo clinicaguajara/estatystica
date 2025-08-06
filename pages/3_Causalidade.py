@@ -41,11 +41,10 @@ def mediation_analysis(df: pd.DataFrame):
     y_mod     = ols(f"`{Y}` ~ `{X}` + `{M}`", data=df).fit()
     total_mod = ols(f"`{Y}` ~ `{X}`", data=df).fit()
 
-    a        = m_mod.params[X]
-    b        = y_mod.params[M]
-    c_prime  = y_mod.params[X]
-    c_total  = total_mod.params[X]
-    indirect = a * b
+    a        = m_mod.params[f"Q('{X}')"]
+    b        = y_mod.params[f"Q('{M}')"]
+    c_prime  = y_mod.params[f"Q('{X}')"]
+    c_total  = total_mod.params[f"Q('{X}')"]
 
     # Exibe coeficientes
     st.markdown(f"""
