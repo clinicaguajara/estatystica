@@ -21,6 +21,8 @@ kaleido>=0.2.1
 
 # Utilitários
 pyyaml>=6.0.1
+patsy>=0.5.3
+
 
 # Machine Learning
 boruta
