@@ -10,6 +10,204 @@ from utils.design import load_css
 
 # CUSTOM FUNCTIONS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
+# SEM Mediation Analysis
+def sem_mediation_analysis(df: pd.DataFrame):
+    """
+    Executa análise de mediação via SEM (X → M → Y), com:
+      • Estimativas simultâneas de trajetórias diretas, indiretas e totais
+      • Índices de ajuste global exibidos em tabela
+      • Gráficos de barras e alluvial (Sankey) em tema escuro + downloads em claro/escuro
+    """
+    import streamlit as st
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import io
+    import copy
+    import plotly.graph_objects as go
+    from semopy import Model
+    from semopy.stats import calc_stats
+
+    # 1) Seleção de variáveis
+    numeric = df.select_dtypes(include="number").columns.tolist()
+    if len(numeric) < 3:
+        st.warning("É necessário pelo menos 3 variáveis numéricas.")
+        return
+    X = st.selectbox("X (independente):", numeric, key="sem_x")
+    M = st.selectbox("M (mediadora):", [c for c in numeric if c != X], key="sem_m")
+    Y = st.selectbox("Y (dependente):", [c for c in numeric if c not in (X, M)], key="sem_y")
+
+    # 2) Ajuste do SEM (com interceptos)
+    df_nona = df[[X, M, Y]].dropna()
+    model_desc = f"""
+    {M} ~ a*{X}
+    {Y} ~ b*{M} + c*{X}
+    """
+    sem = Model(model_desc)
+    sem.fit(df_nona)
+
+    # 3) Estimativas principais
+    params = sem.inspect(std_est=True)
+    a = float(params.loc[(params["lval"] == M) & (params["op"] == "~") & (params["rval"] == X), "Estimate"].iloc[0])
+    b = float(params.loc[(params["lval"] == Y) & (params["op"] == "~") & (params["rval"] == M), "Estimate"].iloc[0])
+    c_prime = float(params.loc[(params["lval"] == Y) & (params["op"] == "~") & (params["rval"] == X), "Estimate"].iloc[0])
+    indirect = a * b
+    total = c_prime + indirect
+
+    # 4) Índices de ajuste global
+    stats_df = calc_stats(sem)
+
+    # 5) Exibição textual
+    st.write("### Modelagem")
+    st.markdown(f"""
+    - Caminho a ({X} ➝ {M}): `{a:.3f}`  
+    - Caminho b ({M} ➝ {Y}): `{b:.3f}`  
+    - Total c ({X} ➝ {Y}): `{c_prime:.3f}`
+    - Efeito direto (controlando M): `{total:.3f}`  
+    - Efeito indireto (a×b): `{indirect:.3f}`    
+    """)
+
+    # 6) Tabela de coeficientes SEM com índice personalizado
+    path_params = params[params["op"] == "~"]
+
+    columns_map = {
+        "Estimate": "Coeficiente",
+        "SE": "Erro padrão",
+        "Std.Err": "Erro padrão",
+        "z-value": "z-valor",
+        "t-value": "t-valor",
+        "p-value": "p-valor"
+    }
+
+    index_labels = [f"{dest} ➝ {orig}" for dest, orig in zip(path_params["lval"], path_params["rval"])]
+    sem_summary_df = pd.DataFrame(index=index_labels)
+
+    sem_summary_df["Destino"] = path_params["lval"].values
+    sem_summary_df["Origem"] = path_params["rval"].values
+
+    for raw_col, display_col in columns_map.items():
+        if raw_col in path_params.columns:
+            sem_summary_df[display_col] = path_params[raw_col].values
+
+    # Oculta as colunas "Destino" e "Origem" para visual mais limpo
+    sem_summary_df.drop(columns=["Destino", "Origem"], inplace=True)
+
+    st.dataframe(sem_summary_df.style.format(precision=4))
+
+    st.write("### Bootstrap")
+
+    # Parâmetro via slider
+    n_boot = st.slider(
+        "Réplicas do bootstrap:",
+        min_value=100,
+        max_value=50000,
+        value=1000,
+        step=100,
+        key="sem_boot_n"
+    )
+
+    # Botão que dispara o cálculo
+    if st.button("Calcular intervalos de confiança", key="btn_sem_boot", use_container_width=True):
+        indirect_boot = []
+        direct_boot = []
+        with st.spinner("Executando bootstrap…"):
+            for _ in range(n_boot):
+                sample_df = df_nona.sample(n=len(df_nona), replace=True)
+                sem_b = Model(model_desc)
+                sem_b.fit(sample_df)
+                p = sem_b.inspect(std_est=True)
+
+                a_b = float(p.loc[(p["lval"] == M) & (p["op"] == "~") & (p["rval"] == X), "Estimate"])
+                b_b = float(p.loc[(p["lval"] == Y) & (p["op"] == "~") & (p["rval"] == M), "Estimate"])
+                c_b = float(p.loc[(p["lval"] == Y) & (p["op"] == "~") & (p["rval"] == X), "Estimate"])
+
+                indirect_boot.append(a_b * b_b)
+                direct_boot.append(c_b)
+
+        # Estatísticas
+        ci_ind_low, ci_ind_high = np.percentile(indirect_boot, [2.5, 97.5])
+        ci_dir_low, ci_dir_high = np.percentile(direct_boot,   [2.5, 97.5])
+
+        st.write("### Intervalos de Confiança (95%)")
+        st.markdown(f"""
+        - **Indireto (a×b)**: `{ci_ind_low:.3f}` a `{ci_ind_high:.3f}`  
+        - **Direto (c′)**: `{ci_dir_low:.3f}` a `{ci_dir_high:.3f}`
+        """)
+
+    st.write("### Índices de ajuste do modelo")
+    st.dataframe(stats_df)
+
+    # ─── BARRAS MATPLOTLIB ─────────────────────────────────────────────────
+    st.write("### Tamanho de efeito")
+    effects = pd.DataFrame({
+        "Efeito": ["Direto (c′)", "Indireto", "Total"],
+        "Valor": [c_prime, indirect, total]
+    })
+    dark_bg, white, purple = "#0E1117", "#FFFFFF", "#7159c1"
+
+    # tema escuro
+    fig_bar_d, ax_bar_d = plt.subplots(figsize=(6, 3.5), facecolor=dark_bg)
+    ax_bar_d.set_facecolor(dark_bg)
+    ax_bar_d.bar(effects["Efeito"], effects["Valor"], color=purple, edgecolor=white, linewidth=1.5, alpha=0.8)
+    ax_bar_d.axhline(0, color=white, linewidth=1.5)
+    ax_bar_d.tick_params(colors=white)
+    for spine in ax_bar_d.spines.values():
+        spine.set_edgecolor(white)
+    plt.tight_layout()
+    st.pyplot(fig_bar_d)
+
+    # buffers de download barras
+    buf_bar_d = io.BytesIO()
+    fig_bar_d.savefig(buf_bar_d, format="png", facecolor=dark_bg)
+    buf_bar_d.seek(0)
+
+    # versão clara
+    fig_bar_l, ax_bar_l = plt.subplots(figsize=(6, 3.5), facecolor="white")
+    ax_bar_l.set_facecolor("white")
+    ax_bar_l.bar(effects["Efeito"], effects["Valor"], color=purple, edgecolor="black", linewidth=1.5, alpha=0.8)
+    ax_bar_l.axhline(0, color="black", linewidth=1.5)
+    ax_bar_l.tick_params(colors="black")
+    for spine in ax_bar_l.spines.values():
+        spine.set_edgecolor("black")
+    plt.tight_layout()
+    buf_bar_l = io.BytesIO()
+    fig_bar_l.savefig(buf_bar_l, format="png", facecolor="white")
+    buf_bar_l.seek(0)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.download_button("📥 Download (escuro)", data=buf_bar_d, file_name="sem_bar_dark.png", mime="image/png", use_container_width=True)
+    with c2:
+        st.download_button("📥 Download (claro)", data=buf_bar_l, file_name="sem_bar_light.png", mime="image/png", use_container_width=True)
+
+    # ─── SANKEY INTERATIVO ──────────────────────────────────────────────────────
+    st.write("### Diagrama de Sankey")
+    st.caption("Visualize o fluxo de efeito direto, indireto e total entre X, M e Y.")
+    fig_snk_d = go.Figure(go.Sankey(
+        arrangement="snap",
+        node=dict(label=[X, M, Y], pad=15, thickness=20, color=dark_bg, line=dict(color=white, width=1)),
+        link=dict(
+            source=[0, 1, 0], target=[1, 2, 2], value=[abs(a), abs(indirect), abs(c_prime)],
+            color=["rgba(113,89,193,0.8)" if v>=0 else "rgba(193,89,113,0.8)" for v in [a, indirect, c_prime]]
+        )
+    ))
+    fig_snk_d.update_layout(paper_bgcolor=dark_bg, font=dict(color=white, size=14), margin=dict(l=10, r=10, t=30, b=10))
+    st.plotly_chart(fig_snk_d, use_container_width=True)
+
+    # prepara downloads alluvial
+    fig_snk_g = copy.deepcopy(fig_snk_d)
+    fig_snk_g.update_layout(paper_bgcolor="gray", font=dict(color="black", size=14))
+    html_dark = fig_snk_g.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
+    fig_snk_l = copy.deepcopy(fig_snk_d)
+    fig_snk_l.update_layout(paper_bgcolor="white", font=dict(color="black", size=14))
+    html_light = fig_snk_l.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button("📥 Download (escuro)", data=html_dark, file_name="sem_sankey_dark.html", mime="text/html", use_container_width=True)
+    with col2:
+        st.download_button("📥 Download (claro)", data=html_light, file_name="sem_sankey_light.html", mime="text/html", use_container_width=True)
+
+
 def mediation_analysis(df: pd.DataFrame):
     """
     Executa análise de mediação simples (X → M → Y), com:
@@ -63,7 +261,7 @@ def mediation_analysis(df: pd.DataFrame):
     # 4) Efeito indireto
     indirect = a * b
 
-    st.write("### Modelagem")
+    st.write("### Modelagem simples")
     # Exibe coeficientes
     st.markdown(f"""
     - Caminho a ({X} ➝ {M}): `{a:.3f}`  
@@ -73,7 +271,37 @@ def mediation_analysis(df: pd.DataFrame):
     - Efeito indireto (a×b): `{indirect:.3f}`  
     """)
 
+    # Mostra a tabela dos coeficientes
+    summary_df = pd.DataFrame({
+        "Coeficiente": y_mod.params,
+        "Erro padrão": y_mod.bse,
+        "t-valor": y_mod.tvalues,
+        "p-valor": y_mod.pvalues
+    })
+    st.dataframe(summary_df.style.format(precision=4))
+
+    # Mostra as métricas globais do modelo
+    st.markdown("### Índices de ajuste do modelo")
+    ols_metrics = pd.DataFrame([{
+        "R²": y_mod.rsquared,
+        "R² ajustado": y_mod.rsquared_adj,
+        "F": y_mod.fvalue,
+        "p(F)": y_mod.f_pvalue,
+        "AIC": y_mod.aic,
+        "BIC": y_mod.bic,
+        "Log-likelihood": y_mod.llf,
+        "N": int(y_mod.nobs),
+        "DF Modelo": int(y_mod.df_model),
+        "DF Resíduo": int(y_mod.df_resid)
+    }])
+    st.dataframe(ols_metrics.style.format(precision=4))
+
+
+
     # ─── BARRAS MATPLOTLIB ─────────────────────────────────────
+
+    st.write("### Tamanho de efeito")
+
     effects = pd.DataFrame({
         "Efeito": ["Direto (c′)", "Indireto (a×b)", "Total (c)"],
         "Valor": [c_prime, indirect, c_total]
@@ -98,11 +326,27 @@ def mediation_analysis(df: pd.DataFrame):
     fig_bar_d.savefig(buf_bar_d, format="png", facecolor=dark_bg)
     buf_bar_d.seek(0)
 
-    # Gráfico claro apenas para download
+    # ─── BARRAS CLARO PARA DOWNLOAD ─────────────────────────────────────────────
     fig_bar_l, ax_bar_l = plt.subplots(figsize=(6,3.5), facecolor="white")
-    ax_bar_l.axhline(0, color="black", linewidth=1)
+    ax_bar_l.set_facecolor("white")
+    # redesenha as barras exatamente como no tema escuro
+    bars_l = ax_bar_l.bar(
+        effects["Efeito"],
+        effects["Valor"],
+        color=purple,            # ou defina outra cor, se preferir
+        edgecolor="black",
+        linewidth=1.5,
+        alpha=0.8
+    )
+    # linha de base
+    ax_bar_l.axhline(0, color="black", linewidth=1.5)
+    # estilização de eixos se precisar
+    ax_bar_l.tick_params(colors="black")
+    for spine in ax_bar_l.spines.values():
+        spine.set_edgecolor("black")
 
     plt.tight_layout()
+    # salva no buffer
     buf_bar_l = io.BytesIO()
     fig_bar_l.savefig(buf_bar_l, format="png", facecolor="white")
     buf_bar_l.seek(0)
@@ -544,5 +788,10 @@ with st.expander("Regressão linear simples"):
 with st.expander("Análise de mediação"):
     st.markdown("<br>", unsafe_allow_html=True) 
     mediation_analysis(df)
+    st.caption("Cálculo inferencial [Statsmodels](https://www.statsmodels.org/stable/index.html) v0.14.4 | Diagrama [Plotly](https://plotly.com/) v2.30")
+
+with st.expander("Modelagem de equações estruturais"):
+    st.markdown("<br>", unsafe_allow_html=True) 
+    sem_mediation_analysis(df)
     st.caption("Cálculo inferencial [Statsmodels](https://www.statsmodels.org/stable/index.html) v0.14.4 | Diagrama [Plotly](https://plotly.com/) v2.30")
 
