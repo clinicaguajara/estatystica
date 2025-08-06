@@ -37,18 +37,19 @@ def mediation_analysis(df: pd.DataFrame):
     Y = st.selectbox("Y:", [c for c in numeric if c not in (X, M)], key="med_y")
 
     # Ajuste dos modelos
-    m_mod     = ols(f"`{M}` ~ `{X}`", data=df).fit()
-    y_mod     = ols(f"`{Y}` ~ `{X}` + `{M}`", data=df).fit()
-    total_mod = ols(f"`{Y}` ~ `{X}`", data=df).fit()
+    m_mod     = ols(f"Q('{M}') ~ Q('{X}')",              data=df).fit()
+    y_mod     = ols(f"Q('{Y}') ~ Q('{X}') + Q('{M}')",   data=df).fit()
+    total_mod = ols(f"Q('{Y}') ~ Q('{X}')",              data=df).fit()
 
-    a        = m_mod.params[f"Q('{X}')"]
-    b        = y_mod.params[f"Q('{M}')"]
-    c_prime  = y_mod.params[f"Q('{X}')"]
+    a        = m_mod .params[f"Q('{X}')"]
+    b        = y_mod .params[f"Q('{M}')"]
+    c_prime  = y_mod .params[f"Q('{X}')"]
     c_total  = total_mod.params[f"Q('{X}')"]
+    indirect = a * b
 
+    st.write("### Modelagem")
     # Exibe coeficientes
     st.markdown(f"""
-    **Resultado**  
     - Caminho a ({X} ➝ {M}): `{a:.3f}`  
     - Caminho b ({M} ➝ {Y}): `{b:.3f}`  
     - Total c ({X} ➝ {Y}): `{c_total:.3f}`  
