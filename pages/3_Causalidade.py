@@ -41,10 +41,26 @@ def mediation_analysis(df: pd.DataFrame):
     y_mod     = ols(f"Q('{Y}') ~ Q('{X}') + Q('{M}')",   data=df).fit()
     total_mod = ols(f"Q('{Y}') ~ Q('{X}')",              data=df).fit()
 
-    a        = m_mod .params[f"Q('{X}')"]
-    b        = y_mod .params[f"Q('{M}')"]
-    c_prime  = y_mod .params[f"Q('{X}')"]
-    c_total  = total_mod.params[f"Q('{X}')"]
+    # 1) Modelo M ~ X
+    df_mx = df[[X, M]].dropna()
+    X_m = sm.add_constant(df_mx[X])
+    m_mod = sm.OLS(df_mx[M], X_m).fit()
+    a = m_mod.params[X]
+
+    # 2) Modelo Y ~ X + M
+    df_ymx = df[[X, M, Y]].dropna()
+    X_ym = sm.add_constant(df_ymx[[X, M]])
+    y_mod = sm.OLS(df_ymx[Y], X_ym).fit()
+    b = y_mod.params[M]
+    c_prime = y_mod.params[X]
+
+    # 3) Modelo total Y ~ X
+    df_yx = df[[X, Y]].dropna()
+    X_y = sm.add_constant(df_yx[X])
+    total_mod = sm.OLS(df_yx[Y], X_y).fit()
+    c_total = total_mod.params[X]
+
+    # 4) Efeito indireto
     indirect = a * b
 
     st.write("### Modelagem")
