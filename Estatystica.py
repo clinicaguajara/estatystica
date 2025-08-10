@@ -124,6 +124,8 @@ def render_loaded_dataframes():
     st.markdown("<br>", unsafe_allow_html=True)
     
     placeholder_table = st.empty()
+    st.markdown("<br>", unsafe_allow_html=True)
+    
     placeholder_feedback = st.empty()
 
     if table_data:
@@ -153,12 +155,13 @@ def render_loaded_dataframes():
             st.session_state.show_delete_form = True
             st.session_state.show_rename_form = False
 
-    st.caption("Carregue mais de um dataframe para realizar operações com bancos de dados, ou explore o menu lateral para realizar operações entre linhas e colunas de um mesmo dataframe já carregado na sessão.")
-
     if st.session_state.show_rename_form:
         rename_dataframe_form(dataframes)
     if st.session_state.show_delete_form:
         delete_dataframe_form(dataframes)
+
+    st.caption("Carregue mais de um dataframe para realizar operações com bancos de dados, ou explore o menu lateral para realizar operações entre linhas e colunas de um mesmo dataframe já carregado na sessão.")
+
 
 def sync_loaded_data():
     if "loaded_data" not in st.session_state:

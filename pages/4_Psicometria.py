@@ -208,12 +208,13 @@ with st.expander("Reescalar itens com base 0", expanded=False):
         key="itens_ajuste_base_zero"
     )
 
+    placeholder_ajuste = st.empty()
     aplicar_ajuste = st.button("Reescalar", use_container_width=True, key="btn_aplicar_ajuste")
 
     if aplicar_ajuste:
         for item in itens_ajuste:
             df[item] = df[item] + 1
-        st.success(f"Ajuste aplicado: {len(itens_ajuste)} item(ns) foram incrementados em +1.")
+        placeholder_ajuste.success(f"Ajuste aplicado: {len(itens_ajuste)} item(ns) foram incrementados em +1.")
         st.session_state.dataframes[selected_df_name] = df
         st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
 
@@ -294,7 +295,7 @@ scale_name = st.text_input(
 )
 
 # 4) Opção de salvar no df
-save_to_df = st.checkbox("Salvar a escala no dataframe atual?", value=False, key="escala_save")
+save_to_df = st.checkbox("Salvar a escala no dataframe atual", value=False, key="escala_save")
 
 placeholder_scales = st.empty()
 
@@ -318,6 +319,8 @@ if st.button("Criar escala", use_container_width=True):
         st.write("#### Primeiro valores da escala criada:")
         st.dataframe(new_series.to_frame(scale_name).head())
 
+        
+
         # salva se pedido
         if save_to_df:
             df[scale_name] = new_series
@@ -335,6 +338,8 @@ if st.button("Criar escala", use_container_width=True):
             "valores": new_series.tolist(),
             "fatores": {}
         }
+
+        st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
 
 # ───────────────────────────────────────────────────────────
 # SEÇÃO 3 — DEFINIR FATORES EM UMA ESCALA
@@ -358,7 +363,7 @@ if escalas_dict:
             key="multiselect_fator_itens"
         )
         save_factor = st.checkbox(
-            "Salvar este fator no dataframe atual?",
+            "Salvar este fator no dataframe atual",
             value=False,
             key="save_fator_checkbox"
         )
@@ -396,6 +401,7 @@ if escalas_dict:
                     f"Fator '{nome_fator}' criado em memória, mas NÃO salvo no DataFrame."
                 )
 
+
 # ───────────────────────────────────────────────────────────
 # SEÇÃO 4 — VISUALIZAR ESCALAS E FATORES
 # ───────────────────────────────────────────────────────────
@@ -432,10 +438,13 @@ for nome, dados in escalas_dict.items():
 
 render_psychometric_properties(df, escalas_dict)
 
+st.divider()
+
+st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
 st.download_button(
-    label="📥 Download dataframe transformado",
+    label="📥 Download (dataframe)",
     data=st.session_state["csv_transformado"],
     file_name=f"{selected_df_name}_curado.csv",
     mime="text/csv",
     use_container_width=True
-)
+    )

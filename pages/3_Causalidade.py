@@ -65,8 +65,10 @@ def sem_mediation_analysis(df: pd.DataFrame):
     a = float(params.loc[(params["lval"] == M_s) & (params["op"] == "~") & (params["rval"] == X_s), "Estimate"].iloc[0])
     b = float(params.loc[(params["lval"] == Y_s) & (params["op"] == "~") & (params["rval"] == M_s), "Estimate"].iloc[0])
     c_prime = float(params.loc[(params["lval"] == Y_s) & (params["op"] == "~") & (params["rval"] == X_s), "Estimate"].iloc[0])
-    indirect = a * b
-    total = c_prime + indirect
+
+    indirect = a * b          # efeito indireto
+    direct = c_prime          # efeito direto (c′)
+    total = direct + indirect # efeito total (c = c′ + a×b)
 
     # 5) Índices de ajuste global
     stats_df = calc_stats(sem)
@@ -76,10 +78,11 @@ def sem_mediation_analysis(df: pd.DataFrame):
     st.markdown(f"""
     - Caminho a ({X} ➝ {M}): `{a:.3f}`  
     - Caminho b ({M} ➝ {Y}): `{b:.3f}`  
-    - Total c ({X} ➝ {Y}): `{c_prime:.3f}`  
-    - Efeito direto (controlando M): `{total:.3f}`  
-    - Efeito indireto (a×b): `{indirect:.3f}`  
+    - **Efeito total (c) {X} ➝ {Y}**: `{total:.3f}`  
+    - **Efeito direto (c′, controlando {M})**: `{direct:.3f}`  
+    - **Efeito indireto (a×b)**: `{indirect:.3f}`  
     """)
+
 
     # 7) Tabela de coeficientes SEM
     path_params = params[params["op"] == "~"].copy()
