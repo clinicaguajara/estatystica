@@ -12,7 +12,7 @@ plotly==5.20.0
 semopy>=2.3.11
 
 # Visualização
-matplotlib==3.10.5 
+matplotlib==3.10.5
 seaborn==0.13.2
 
 # Exportação de resultados
@@ -24,9 +24,8 @@ kaleido>=0.2.1
 pyyaml>=6.0.1
 patsy>=0.5.3
 
-
 # Machine Learning
 boruta
 
 # For working locally
-#.\.venv\Scripts\activate
+# .\.venv\Scripts\activate

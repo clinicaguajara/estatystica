@@ -352,7 +352,6 @@ df_names = list(st.session_state.dataframes.keys())
 # Verify dataframe
 if "dataframes" not in st.session_state or not st.session_state.dataframes:
     st.warning("Este dataframe não possui colunas numéricas.")
-    st.stop()
 
 selected_df_name = st.session_state.get("selected_df_name")
 
@@ -411,7 +410,7 @@ if st.session_state.get("csv_transformado"):
         st.write(f"Visualizando as primeiras {num_rows} linhas da curadoria:")
         st.dataframe(df.head(num_rows), use_container_width=True)
         st.download_button(
-            label="📥 Download (curadoria)",
+            label="📥 Download (CSV)",
             data=st.session_state["csv_transformado"],
             file_name=f"{selected_df_name}_curado.csv",
             mime="text/csv",
