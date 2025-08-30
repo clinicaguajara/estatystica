@@ -27,5 +27,8 @@ patsy>=0.5.3
 # Machine Learning
 boruta
 
+# Leitura de arquivos SPSS (.sav, .zsav)
+pyreadstat>=1.2.0
+
 # For working locally
 # .\.venv\Scripts\activate

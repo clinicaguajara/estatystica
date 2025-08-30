@@ -42,7 +42,11 @@ def render_dataset_selector(df_dict: dict) -> str | None:
         )
         return None
 
-    return st.selectbox("Selecione o dataframe para análise:", list(df_dict.keys()), key="ml_df_name")
+    return st.selectbox(
+        "Selecione o dataframe para análise:",
+        list(df_dict.keys()),
+        key="ml_df_name"
+    )
 
 
 def render_dataframe_summary(df: pd.DataFrame):
@@ -106,11 +110,16 @@ def main():
     st.divider()
 
     st.session_state["ml_selected_df_name"] = df_name
-    st.session_state["ml_selected_area"] = area
+    st.session_state["ml_selected_area"]   = area
     
     if area == "Aprendizado Não Supervisionado":
         from modules.k_means import render_unsupervised  # import local (leve)
         render_unsupervised(df)
+
+    # ⬇️ NOVO: Supervisionado (Classificação)
+    elif area == "Aprendizado Supervisionado":
+        from modules.supervised import render_supervised_classification  # import local
+        render_supervised_classification(df)
 
 
 if __name__ == "__main__":

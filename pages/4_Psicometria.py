@@ -155,6 +155,69 @@ def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
     elif metodo == "Fatorial Confirmatória (em breve)":
         st.info("Este módulo será integrado futuramente com modelagem SEM.")
 
+def rescale_items(df: pd.DataFrame, selected_df_name: str):
+    """
+    <docstrings>
+    Permite reescalar itens entre base 0 e base 1:
+      • Base 0 → Base 1 (incrementa +1 em cada valor).
+      • Base 1 → Base 0 (decrementa -1 em cada valor).
+
+    Args:
+        df (pd.DataFrame): DataFrame original.
+        selected_df_name (str): Nome do dataframe salvo no session_state.
+
+    Calls:
+        st.expander(): Cria seção expansível | instanciado por st.
+        st.radio(): Escolha da direção de ajuste | instanciado por st.
+        st.multiselect(): Seleção de itens a ajustar | instanciado por st.
+        st.button(): Botão para aplicar ajuste | instanciado por st.
+        df.__setitem__(): Atualiza valores da coluna | método de DataFrame.
+        st.session_state.dataframes.__setitem__(): Atualiza dataframe global | instanciado por session_state.
+        st.session_state.__setitem__(): Armazena CSV atualizado | instanciado por session_state.
+
+    Returns:
+        None.
+    """
+    import streamlit as st
+
+    with st.expander("Reescalar itens (base 0 ↔ base 1)", expanded=False):
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.caption(
+            "Este módulo permite corrigir a base de itens tipo Likert:\n\n"
+            "- **Base 0 → Base 1**: incrementa todos os valores em +1 (ex.: 0–3 → 1–4).\n"
+            "- **Base 1 → Base 0**: decrementa todos os valores em -1 (ex.: 1–4 → 0–3).\n\n"
+            "Assim, preserva-se a ordem ordinal enquanto se ajusta a codificação da escala."
+        )
+
+        direcao = st.radio(
+            "Escolha a direção do ajuste:",
+            options=["Base 0 → Base 1", "Base 1 → Base 0"],
+            key="direcao_reescala"
+        )
+
+        itens_ajuste = st.multiselect(
+            "Itens a serem reescalados:",
+            options=df.columns.tolist(),
+            key="itens_ajuste_reescala"
+        )
+
+        placeholder_ajuste = st.empty()
+        aplicar_ajuste = st.button("Aplicar reescala", use_container_width=True, key="btn_aplicar_reescala")
+
+        if aplicar_ajuste:
+            if direcao == "Base 0 → Base 1":
+                for item in itens_ajuste:
+                    df[item] = df[item] + 1
+                placeholder_ajuste.success(f"Ajuste aplicado: {len(itens_ajuste)} item(ns) incrementados em +1.")
+            elif direcao == "Base 1 → Base 0":
+                for item in itens_ajuste:
+                    df[item] = df[item] - 1
+                placeholder_ajuste.success(f"Ajuste aplicado: {len(itens_ajuste)} item(ns) decrementados em -1.")
+
+            st.session_state.dataframes[selected_df_name] = df
+            st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
+
+
 # PAGE 4 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 load_css()
@@ -197,26 +260,8 @@ if selected_df_name not in st.session_state["escalas"]:
 escalas_dict = st.session_state["escalas"][selected_df_name]
 
 
-with st.expander("Reescalar itens com base 0", expanded=False):
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.caption("Nas escalas do tipo Likert, os valores atribuídos às alternativas representam postos ordinais, e não quantidades absolutas. Por isso, o uso do valor zero como uma das opções pode ser conceitualmente inadequado. Isso porque o zero carrega um significado intervalar — ou seja, indica ausência absoluta do fenômeno — enquanto as escalas de postos devem refletir apenas a intensidade relativa entre categorias. Ao utilizar zero, perde-se uma posição válida na escala, o que reduz o número efetivo de níveis de resposta e pode comprometer a lógica ordinal esperada. Por esse motivo, é comum reescalar de 1 em diante (por exemplo, 1 a 5) itens com base 0 para preservar a estrutura de postos e garantir que todas as categorias representem graus válidos de expressão do fenômeno.")
-    
-    itens_ajuste = st.multiselect(
-        "Itens com base 0 que precisam ser reescalados:",
-        options=df.columns.tolist(),  # ou selected_cols, ou todos_itens, dependendo do escopo
-        key="itens_ajuste_base_zero"
-    )
+rescale_items(df, selected_df_name)
 
-    placeholder_ajuste = st.empty()
-    aplicar_ajuste = st.button("Reescalar", use_container_width=True, key="btn_aplicar_ajuste")
-
-    if aplicar_ajuste:
-        for item in itens_ajuste:
-            df[item] = df[item] + 1
-        placeholder_ajuste.success(f"Ajuste aplicado: {len(itens_ajuste)} item(ns) foram incrementados em +1.")
-        st.session_state.dataframes[selected_df_name] = df
-        st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
 
 with st.expander("Inversão de itens", expanded=False):
     

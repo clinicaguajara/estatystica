@@ -297,7 +297,6 @@ def _build_cluster_profile_fig(
     ax.set_xticklabels(xticklabels, rotation=int(xrotation), ha="right",
                        color=fg, fontsize=int(xfontsize))
     ax.set_ylabel(y_label or "Valores", color=fg)
-    ax.set_title("Perfis de clusters (médias por feature)", color=fg, pad=10)
     ax.tick_params(colors=fg)
     for s in ax.spines.values():
         s.set_color(fg)
@@ -334,7 +333,7 @@ def plot_cluster_profiles(centers_scaled, centers_original, feature_names,
         xfontsize = st.number_input("Tamanho da fonte", 6, 16, 9, step=1)
 
     centers = centers_scaled if show_scaled else centers_original
-    y_label = "Z-scores (espaço do modelo)" if show_scaled else "Valores (espaço original)"
+    y_label = "Z-scores" if show_scaled else "Valores (espaço original)"
 
     fig_dark = _build_cluster_profile_fig(
         centers=centers, feature_names=feature_names, theme="dark",

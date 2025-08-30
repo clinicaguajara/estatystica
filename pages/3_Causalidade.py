@@ -11,7 +11,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # CUSTOM FUNCTIONS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-# SEM Mediation Analysis
 
 def sem_mediation_analysis(df: pd.DataFrame):
     """
@@ -690,6 +689,189 @@ def linear_regression_analysis(df: pd.DataFrame):
             use_container_width=True
         )
 
+
+def density_by_category(df: pd.DataFrame):
+    """
+    Exibe KDE/Histograma de uma variável numérica por níveis de uma variável categórica,
+    com paleta Plotly, mapeamento cor→cluster personalizável e downloads dark/light.
+    """
+    import streamlit as st
+    import pandas as pd
+    import numpy as np
+    import itertools
+    import plotly.figure_factory as ff
+    import plotly.io as pio
+    from plotly.express import colors
+    from pandas.api.types import is_numeric_dtype
+
+    # 1) Tipos
+    num_cols = df.select_dtypes(include="number").columns.tolist()
+    cat_cols = df.select_dtypes(include=["object", "category", "bool"]).columns.tolist()
+    low_card_numeric = [c for c in df.columns if is_numeric_dtype(df[c]) and df[c].nunique(dropna=True) <= 20]
+    cat_cols = list(dict.fromkeys(cat_cols + low_card_numeric))
+
+    if not num_cols or not cat_cols:
+        st.warning("Preciso de pelo menos 1 coluna numérica e 1 categórica.")
+        return
+
+    # 2) Seleção de colunas
+    x_cat = st.selectbox("Variável categórica (ex.: sexo/cluster):", cat_cols, key="kde_cat")
+    y_num = st.selectbox("Variável numérica (ex.: escore):", num_cols, key="kde_num")
+
+    st.caption("KDE supõe variável contínua. Para Likert discreta, use histograma/ECDF.")
+
+    # 3) Parâmetros visuais
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        show_rug = st.toggle("Mostrar rug", value=False)
+    with c2:
+        show_hist = st.toggle("Mostrar histograma", value=False)
+    with c3:
+        common_norm = st.toggle("Normalizar", value=True)
+
+    # 4) Paleta
+    palettes = {k: v for k, v in colors.qualitative.__dict__.items() if isinstance(v, list)}
+    palette_name = st.selectbox("Paleta de cores:", options=sorted(palettes.keys()))
+    base_palette = palettes[palette_name]
+
+    # 5) Dados por grupo
+    grouped = df[[x_cat, y_num]].dropna()
+    series, labels = [], []
+    for level, sub in grouped.groupby(x_cat, dropna=False):
+        vals = pd.to_numeric(sub[y_num], errors="coerce").dropna().values
+        if len(vals) >= 2:
+            series.append(vals)
+            labels.append(str(level))
+
+    if not series:
+        st.info("Sem dados suficientes para estimar densidades.")
+        return
+
+    # 6) Mapeamento cor→cluster (persistente)
+    use_fixed_map = st.toggle("Fixar mapeamento de cores", value=False)
+    map_key = f"color_map::{x_cat}::{palette_name}"
+    if "color_maps" not in st.session_state:
+        st.session_state["color_maps"] = {}
+
+    # cria default se não existir (ordem estável: labels ordenados mapeados para paleta cíclica)
+    if map_key not in st.session_state["color_maps"]:
+        default_map = {}
+        for i, lab in enumerate(sorted(labels)):
+            default_map[lab] = base_palette[i % len(base_palette)]
+        st.session_state["color_maps"][map_key] = default_map
+
+    # UI para editar mapeamento
+    color_map = st.session_state["color_maps"][map_key].copy()
+    cols_per_row = 3
+    if use_fixed_map:
+
+        rows = [sorted(labels)[i:i+cols_per_row] for i in range(0, len(sorted(labels)), cols_per_row)]
+        for row in rows:
+            rcols = st.columns(len(row))
+            for j, lab in enumerate(row):
+                # opções: somente cores da paleta atual
+                with rcols[j]:
+                    sel = st.selectbox(
+                        f"{x_cat} = {lab}",
+                        options=base_palette,
+                        index=base_palette.index(color_map.get(lab, base_palette[0])) if color_map.get(lab) in base_palette else 0,
+                        key=f"map_{map_key}_{lab}"
+                    )
+                    color_map[lab] = sel
+
+        if st.button("Reiniciar mapeamento", use_container_width=True):
+            st.session_state["color_maps"].pop(map_key, None)
+            st.rerun()
+
+        # salva alterações
+        st.session_state["color_maps"][map_key] = color_map
+
+    # 7) Lista de cores final na ordem de `labels` (não ordenadas!)
+    if use_fixed_map:
+        # se aparecer um cluster novo que não estava no mapa, atribui próxima cor da paleta
+        for lab in labels:
+            if lab not in color_map:
+                nxt = base_palette[len(color_map) % len(base_palette)]
+                color_map[lab] = nxt
+        color_list = [color_map[lab] for lab in labels]
+    else:
+        # sem mapeamento fixo: paleta cíclica na ordem dos labels atuais
+        color_list = list(itertools.islice(itertools.cycle(base_palette), len(labels)))
+
+    bin_size = None
+    if show_hist:
+        bin_size = [None] * len(series)  # cria lista explícita
+
+    # 8) Figura (tema escuro)
+    fig_dark = ff.create_distplot(
+        hist_data=series,
+        group_labels=labels,
+        bin_size=bin_size,
+        show_hist=show_hist,
+        show_rug=show_rug,
+        colors=color_list
+    )
+
+
+    fig_dark.update_layout(
+            template="plotly_dark",
+            xaxis_title=y_num,
+            yaxis_title="Density" if not show_hist else "Frequência",
+            legend_title=x_cat,
+            hovermode="x unified"
+        )
+
+    # 9) Normalização conjunta (somente KDE)
+    if common_norm and not show_hist and len(fig_dark.data) > 0:
+        areas = []
+        for tr in fig_dark.data:
+            if tr.type == "scatter" and tr.mode == "lines":
+                x = np.array(tr.x, dtype=float)
+                y = np.array(tr.y, dtype=float)
+                areas.append(np.trapz(y, x))
+            else:
+                areas.append(0.0)
+        total_area = sum(a for a in areas if a > 0)
+        if total_area > 0:
+            k = 1.0 / total_area
+            for tr in fig_dark.data:
+                if tr.type == "scatter" and tr.mode == "lines":
+                    tr.update(y=(np.array(tr.y, dtype=float) * k))
+
+    # 10) Exibir + downloads
+    st.plotly_chart(fig_dark, use_container_width=True)
+
+    html_dark = fig_dark.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
+    fig_light = pio.from_json(fig_dark.to_json())
+    html_light = fig_light.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
+
+    cdl1, cdl2 = st.columns(2)
+    with cdl1:
+        st.download_button("📥 Download (tema escuro)", data=html_dark,
+                           file_name=f"kde_{y_num}_by_{x_cat}_dark.html",
+                           mime="text/html", use_container_width=True)
+    with cdl2:
+        st.download_button("📥 Download (tema claro)", data=html_light,
+                           file_name=f"kde_{y_num}_by_{x_cat}_light.html",
+                           mime="text/html", use_container_width=True)
+
+
+
+def render_graph_selector() -> str:
+    """
+    <docstrings>
+    Exibe o seletor da grande área de ML.
+    """
+    return st.radio(
+        "Escolha o tipo de visualização de variáveis:",
+        (
+            "Gráfico de dispersão",
+            "Gráfico de densidade por categoria"
+        ),
+        horizontal=True,
+        key="graph_choice",
+    )
+
 # PAGE 3 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 load_css()
@@ -721,10 +903,14 @@ st.divider()
 # BODY ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 # Executa os módulos de inferência
-st.write("### Gráfico de dispersão")
-st.caption("Visualize a relação entre duas variáveis numéricas em um plano cartesiano (scatter plot).")
+st.write("### Exploração visual")
 
-scatter_interactive(df)
+graph = render_graph_selector()
+
+if graph == "Gráfico de dispersão":
+    scatter_interactive(df)
+if graph == "Gráfico de densidade por categoria":
+    density_by_category(df)
 
 st.divider()
 

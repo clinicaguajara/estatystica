@@ -70,7 +70,10 @@ def delete_dataframe_form(dataframes: dict):
 def merge_dataframes_with_fill(dataframes: dict):
     st.divider()
     st.subheader("Empilhar dataframes")
-    st.caption("Colunas iguais serão alinhadas e colunas diferentes serão preenchidas com 'Nan'.")
+    st.caption(
+        "As colunas do primeiro dataframe selecionado serão preservadas na ordem original; "
+        "colunas extras dos demais entrarão ao final. Colunas ausentes serão preenchidas com 'NaN'."
+    )
 
     # ⬇️ Mensagem de sucesso pós-rerun
     if msg := st.session_state.pop("merge_feedback", None):
@@ -82,7 +85,11 @@ def merge_dataframes_with_fill(dataframes: dict):
         return
 
     with st.form("merge_multiple_form"):
-        selected_names = st.multiselect("Selecione os dataframes que deseja empilhar:", df_names, default=[])
+        selected_names = st.multiselect(
+            "Selecione os dataframes que deseja empilhar (a ordem de seleção importa):",
+            df_names,
+            default=[]
+        )
         new_name = st.text_input("Nome para o novo dataframe combinado:", value="uniao_dataframes")
         submitted = st.form_submit_button("Empilhar Dataframes", use_container_width=True)
 
@@ -91,20 +98,40 @@ def merge_dataframes_with_fill(dataframes: dict):
                 st.warning("Selecione pelo menos dois dataframes.")
                 return
 
+            # Clones para evitar mutação do original
             dfs = [dataframes[name].copy() for name in selected_names]
-            all_columns = set().union(*[df.columns for df in dfs])
-            for i in range(len(dfs)):
-                missing_cols = all_columns - set(dfs[i].columns)
-                for col in missing_cols:
-                    dfs[i][col] = pd.NA
-                dfs[i] = dfs[i][sorted(all_columns)]
 
+            # 1) Colunas base = ordem do primeiro dataframe selecionado
+            base_cols = list(dfs[0].columns)
+
+            # 2) Colunas extras = aparecem nos demais na ordem em que surgem
+            seen = set(base_cols)
+            extra_cols = []
+            for df in dfs[1:]:
+                for col in df.columns:
+                    if col not in seen:
+                        extra_cols.append(col)
+                        seen.add(col)
+
+            final_cols = base_cols + extra_cols
+
+            # 3) Garantir todas as colunas e reordenar para final_cols
+            for i in range(len(dfs)):
+                missing = [c for c in final_cols if c not in dfs[i].columns]
+                for col in missing:
+                    dfs[i][col] = pd.NA
+                dfs[i] = dfs[i][final_cols]
+
+            # 4) Empilhar
             df_merged = pd.concat(dfs, ignore_index=True, sort=False)
+
+            # 5) Atualiza sessão e feedback
             st.session_state.dataframes[new_name] = df_merged
             st.session_state.loaded_data[new_name] = df_merged
-
-            # ⬇️ Armazena mensagem e força rerun
-            st.session_state["merge_feedback"] = f"{len(selected_names)} dataframes empilhados como '{new_name}' ({df_merged.shape[0]} linhas × {df_merged.shape[1]} colunas)."
+            st.session_state["merge_feedback"] = (
+                f"{len(selected_names)} dataframes empilhados como '{new_name}' "
+                f"({df_merged.shape[0]} linhas × {df_merged.shape[1]} colunas)."
+            )
             st.rerun()
 
 def render_loaded_dataframes():
@@ -136,12 +163,9 @@ def render_loaded_dataframes():
         placeholder_feedback.info("Nenhum dataframe disponível para análise.")
         return
 
-    # Tenta recuperar e remover a mensagem de renomeação do session_state.
-    # Se a variável "rename_feedback" existir, ela será removida (pop) e atribuída a "msg".
-    # O operador walrus := permite fazer isso em uma única linha.
+    # Mensagens pós-ação
     if msg := st.session_state.pop("rename_feedback", None):
         placeholder_feedback.success(msg)
-        
     elif msg := st.session_state.pop("delete_feedback", None):
         placeholder_feedback.success(msg)
 
@@ -162,7 +186,6 @@ def render_loaded_dataframes():
 
     st.caption("Carregue mais de um dataframe para realizar operações com bancos de dados, ou explore o menu lateral para realizar operações entre linhas e colunas de um mesmo dataframe já carregado na sessão.")
 
-
 def sync_loaded_data():
     if "loaded_data" not in st.session_state:
         st.session_state.loaded_data = dict(st.session_state.dataframes)
@@ -180,10 +203,10 @@ if "dataframes" not in st.session_state:
 if "processed_files" not in st.session_state:
     st.session_state.processed_files = set()
 
-# Upload dataframes.
+# Upload dataframes.  ⬅️ AGORA ACEITA .sav/.zsav
 uploaded_files = st.file_uploader(
     "Carregue um ou mais dataframes:",
-    type=["csv", "xls", "xlsx"],
+    type=["csv", "xls", "xlsx", "sav", "zsav"],
     accept_multiple_files=True
 )
 
@@ -198,16 +221,42 @@ if uploaded_files:
 
             if suffix == ".csv":
                 df = pd.read_csv(file)
+
             elif suffix in [".xls", ".xlsx"]:
+                # read_excel precisa de buffer binário
                 df = pd.read_excel(BytesIO(file.read()))
+
+            elif suffix in [".sav", ".zsav"]:
+                # Leitura de arquivos SPSS via arquivo temporário
+                import tempfile, os
+                tmp_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                        tmp.write(file.getbuffer())
+                        tmp_path = tmp.name
+                    # pandas usa pyreadstat por baixo dos panos
+                    df = pd.read_spss(tmp_path, convert_categoricals=True)
+                except Exception as e_spss:
+                    st.error(f"Erro ao carregar '{file.name}' (SPSS): {e_spss}")
+                    st.info("Verifique se 'pyreadstat>=1.2.0' está instalado no ambiente.")
+                    continue
+                finally:
+                    if tmp_path:
+                        try:
+                            os.remove(tmp_path)
+                        except Exception:
+                            pass
+
             else:
                 st.warning(f"Tipo de arquivo não suportado: {file.name}")
                 continue
 
             st.session_state.dataframes[name] = df
             st.session_state.processed_files.add(name)
+
         except Exception as e:
             st.error(f"Erro ao carregar '{file.name}': {e}")
+
 
 # Synch and resume.
 if "loaded_data" not in st.session_state:
