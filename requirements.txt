@@ -32,3 +32,4 @@ pyreadstat>=1.2.0
 
 # For working locally
 # .\.venv\Scripts\activate
+pycountry>=24.6.1

@@ -331,7 +331,7 @@ def conditional_row_removal(df: pd.DataFrame, df_name: str):
 load_css()
 
 # Título e instruções iniciais
-st.title("Curadoria")
+st.title("Curadoria de Dados")
 
 st.caption("""
 A seção de **curadoria** oferece ferramentas essenciais para limpeza e transformação de dados antes da análise estatística. 
