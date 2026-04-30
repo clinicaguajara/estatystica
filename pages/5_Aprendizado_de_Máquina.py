@@ -22,7 +22,7 @@ def render_header():
     <docstrings>
     Renderiza o título e a legenda introdutória (leve).
     """
-    st.title("Machine Learning")
+    st.title("Aprendizado de Máquina")
     st.caption(
         "Inteligência Artificial (IA) busca criar sistemas capazes de tomar decisões. "
         "Machine Learning (ML) é a subárea da IA que aprende padrões a partir de dados "
