@@ -195,13 +195,6 @@ def describe_numeric_column(df: pd.DataFrame, df_name="selected_df_name"):
             use_container_width=True
         )
 
-    # McKinney, 2010
-    st.info(
-        """**W. McKinney. Data Structures for Statistical Computing in Python (2010).** [doi](https://doi.org/10.25080/Majora-92bf1922-00a)  
-    \nMcKinney (2010) argumenta que a integração de pandas com NumPy, SciPy, Matplotlib e outras bibliotecas científicas torna o Python uma opção cada vez mais atraente para análise de dados estatísticos, especialmente em comparação com R. O artigo aponta a evolução futura da biblioteca e seu papel central em um ecossistema de modelagem estatística em Python.
-    """,
-        icon="📜"
-    )
 
     # Renderiza as tabelas
     st.write("### Medidas de tendência central")
@@ -265,7 +258,7 @@ def describe_categorical_column(df: pd.DataFrame, df_name="selected_df_name"):
 
     chart_type = st.radio(
         "Escolha o tipo de gráfico para categorias:",
-        ["Contagem de frequências", "Quadrados proporcionais", "Choropleth (países)"],
+        ["Contagem de frequências", "Quadrados proporcionais", "Sunburst", "Choropleth (países)"],
         horizontal=True,
         key="cat_plot_type",
     )
@@ -277,18 +270,221 @@ def describe_categorical_column(df: pd.DataFrame, df_name="selected_df_name"):
             y="frequencia",
             text="frequencia",
             color="categoria",
+            # Define paleta explícita para garantir cores consistentes no HTML exportado.
+            color_discrete_sequence=px.colors.qualitative.Plotly,
             title=f"Frequência por categoria: {selected_col}",
         )
         fig.update_layout(showlegend=False, xaxis_title=selected_col, yaxis_title="Frequência")
-    elif chart_type == "Quadrados proporcionais":
-        fig = px.treemap(
-            freq_df,
-            path=["categoria"],
-            values="frequencia",
-            color="frequencia",
-            color_continuous_scale="Blues",
-            title=f"Quadrados proporcionais por categoria: {selected_col}",
+    elif chart_type in ["Quadrados proporcionais", "Sunburst"]:
+        is_sunburst = chart_type == "Sunburst"
+        hier_plot_fn = px.sunburst if is_sunburst else px.treemap
+        hier_title = f"{chart_type} por categoria: {selected_col}"
+
+        # Inclui o tipo do gráfico na chave para separar as preferências de treemap x sunburst.
+        treemap_key_base = f"{df_name}::{selected_col}::{chart_type}"
+        treemap_df = freq_df.copy()
+
+        with st.expander(f"Configurar {chart_type.lower()}"):
+            density_mode_tree = st.radio(
+                "Escala de densidade:",
+                [
+                    "Contínua (linear)",
+                    "Contínua (log10)",
+                    "Faixas automáticas (quantis)",
+                    "Faixas manuais",
+                ],
+                horizontal=True,
+                key=f"treemap_density_mode::{treemap_key_base}",
+            )
+            text_mode_tree = st.selectbox(
+                "Texto nas áreas:",
+                [
+                    "Categoria + frequência + %",
+                    "Categoria + frequência",
+                    "Categoria + %",
+                    "Só categoria",
+                ],
+                index=0,
+                key=f"treemap_text_mode::{treemap_key_base}",
+            )
+            text_size_tree = st.slider(
+                "Tamanho da fonte nas áreas:",
+                min_value=9,
+                max_value=32,
+                value=14,
+                step=1,
+                key=f"treemap_text_size::{treemap_key_base}",
+            )
+            text_color_tree = st.selectbox(
+                "Cor do texto:",
+                ["Automática", "Branco", "Preto"],
+                index=0,
+                key=f"treemap_text_color::{treemap_key_base}",
+            )
+            border_width_tree = st.slider(
+                "Espessura da borda entre áreas:",
+                min_value=0.0,
+                max_value=4.0,
+                value=1.0,
+                step=0.5,
+                key=f"treemap_border_width::{treemap_key_base}",
+            )
+
+            if density_mode_tree == "Faixas automáticas (quantis)":
+                n_bins_tree = st.slider(
+                    "Número de faixas:",
+                    min_value=3,
+                    max_value=7,
+                    value=5,
+                    key=f"treemap_density_bins::{treemap_key_base}",
+                )
+            else:
+                n_bins_tree = None
+
+            if density_mode_tree == "Faixas manuais":
+                min_freq_tree = int(treemap_df["frequencia"].min())
+                max_freq_tree = int(treemap_df["frequencia"].max())
+                default_cut_values_tree = sorted(
+                    {
+                        int(treemap_df["frequencia"].quantile(0.25)),
+                        int(treemap_df["frequencia"].quantile(0.50)),
+                        int(treemap_df["frequencia"].quantile(0.75)),
+                    }
+                )
+                default_cut_values_tree = [v for v in default_cut_values_tree if min_freq_tree < v < max_freq_tree]
+                default_cut_text_tree = ", ".join(str(v) for v in default_cut_values_tree)
+
+                raw_cut_text_tree = st.text_input(
+                    "Cortes (separados por vírgula). Ex.: 100, 300, 800",
+                    value=default_cut_text_tree,
+                    key=f"treemap_density_manual_cuts::{treemap_key_base}",
+                )
+            else:
+                raw_cut_text_tree = ""
+
+        if density_mode_tree == "Contínua (linear)":
+            fig = hier_plot_fn(
+                treemap_df,
+                path=["categoria"],
+                values="frequencia",
+                color="frequencia",
+                color_continuous_scale="Blues",
+                labels={"frequencia": "Frequency", "percentual": "Percentual (%)"},
+                title=hier_title,
+            )
+        elif density_mode_tree == "Contínua (log10)":
+            import math
+
+            treemap_df_log = treemap_df.copy()
+            treemap_df_log["frequencia_log10"] = treemap_df_log["frequencia"].apply(lambda v: math.log10(v + 1))
+            fig = hier_plot_fn(
+                treemap_df_log,
+                path=["categoria"],
+                values="frequencia",
+                color="frequencia_log10",
+                color_continuous_scale="Blues",
+                labels={
+                    "frequencia": "Frequency",
+                    "frequencia_log10": "log10(Frequency + 1)",
+                    "percentual": "Percentual (%)",
+                },
+                title=hier_title,
+            )
+            fig.update_traces(marker_colorbar_title="log10(Frequency + 1)")
+        else:
+            treemap_df_binned = treemap_df.copy()
+
+            if density_mode_tree == "Faixas automáticas (quantis)":
+                n_unique_tree = int(treemap_df_binned["frequencia"].nunique())
+                n_bins_effective_tree = max(1, min(int(n_bins_tree or 5), n_unique_tree))
+
+                if n_bins_effective_tree == 1:
+                    treemap_df_binned["faixa_densidade"] = "Faixa única"
+                    category_order_tree = ["Faixa única"]
+                else:
+                    faixa_cat_tree = pd.qcut(
+                        treemap_df_binned["frequencia"],
+                        q=n_bins_effective_tree,
+                        duplicates="drop",
+                    )
+                    category_order_tree = [str(c) for c in faixa_cat_tree.cat.categories]
+                    treemap_df_binned["faixa_densidade"] = faixa_cat_tree.astype(str)
+            else:
+                min_freq_tree = int(treemap_df_binned["frequencia"].min())
+                max_freq_tree = int(treemap_df_binned["frequencia"].max())
+                parsed_values_tree = []
+                parse_error_tree = False
+                for piece in raw_cut_text_tree.replace(";", ",").split(","):
+                    token = piece.strip()
+                    if not token:
+                        continue
+                    try:
+                        parsed_values_tree.append(float(token))
+                    except ValueError:
+                        parse_error_tree = True
+                        break
+
+                if parse_error_tree:
+                    st.warning("Cortes manuais inválidos na visualização hierárquica. Use apenas números separados por vírgula.")
+                    treemap_df_binned["faixa_densidade"] = "Faixa única"
+                    category_order_tree = ["Faixa única"]
+                else:
+                    cut_values_tree = sorted(set(v for v in parsed_values_tree if min_freq_tree < v < max_freq_tree))
+                    bins_tree = [float("-inf")] + cut_values_tree + [float("inf")]
+                    faixa_cat_tree = pd.cut(
+                        treemap_df_binned["frequencia"],
+                        bins=bins_tree,
+                        include_lowest=True,
+                    )
+                    category_order_tree = [str(c) for c in faixa_cat_tree.cat.categories]
+                    treemap_df_binned["faixa_densidade"] = faixa_cat_tree.astype(str)
+
+            if len(category_order_tree) <= 1:
+                density_palette_tree = [px.colors.sequential.Blues[-1]]
+            else:
+                density_palette_tree = px.colors.sample_colorscale(
+                    "Blues",
+                    [0.20 + 0.75 * (i / (len(category_order_tree) - 1)) for i in range(len(category_order_tree))],
+                )
+            density_color_map_tree = dict(zip(category_order_tree, density_palette_tree))
+            treemap_df_binned["faixa_densidade"] = pd.Categorical(
+                treemap_df_binned["faixa_densidade"],
+                categories=category_order_tree,
+                ordered=True,
+            )
+
+            fig = hier_plot_fn(
+                treemap_df_binned,
+                path=["categoria"],
+                values="frequencia",
+                color="faixa_densidade",
+                color_discrete_map=density_color_map_tree,
+                labels={
+                    "frequencia": "Frequency",
+                    "faixa_densidade": "Faixa de densidade",
+                    "percentual": "Percentual (%)",
+                },
+                title=hier_title,
+            )
+
+        if text_mode_tree == "Categoria + frequência + %":
+            text_template_tree = "%{label}<br>%{value}<br>%{percentRoot:.1%}"
+        elif text_mode_tree == "Categoria + frequência":
+            text_template_tree = "%{label}<br>%{value}"
+        elif text_mode_tree == "Categoria + %":
+            text_template_tree = "%{label}<br>%{percentRoot:.1%}"
+        else:
+            text_template_tree = "%{label}"
+
+        fig.update_traces(
+            texttemplate=text_template_tree,
+            textfont_size=text_size_tree,
+            marker_line_width=border_width_tree,
         )
+        if text_color_tree == "Branco":
+            fig.update_traces(textfont_color="#FFFFFF")
+        elif text_color_tree == "Preto":
+            fig.update_traces(textfont_color="#000000")
     else:
         # Para mapa, usamos todas as categorias (sem limite top N) para preservar cobertura.
         # Isso evita vieses de visualização causados por truncar apenas as categorias mais frequentes.
@@ -364,6 +560,9 @@ def describe_categorical_column(df: pd.DataFrame, df_name="selected_df_name"):
         if not has_pycountry:
             full_counts["map_location"] = full_counts["pais_plot"]
 
+        # Chave base para persistir preferências deste mapa (por dataframe + coluna).
+        map_key_base = f"{df_name}::{selected_col}"
+
         # Camada 3 de robustez: intervenção manual guiada para casos não reconhecidos.
         # O mapeamento fica persistido no session_state por dataframe+coluna.
         not_found = full_counts[full_counts["map_location"].isna()].copy() if has_pycountry else pd.DataFrame()
@@ -374,7 +573,6 @@ def describe_categorical_column(df: pd.DataFrame, df_name="selected_df_name"):
             if "choropleth_country_map" not in st.session_state:
                 st.session_state["choropleth_country_map"] = {}
 
-            map_key_base = f"{df_name}::{selected_col}"
             if map_key_base not in st.session_state["choropleth_country_map"]:
                 st.session_state["choropleth_country_map"][map_key_base] = {}
             manual_map = st.session_state["choropleth_country_map"][map_key_base]
@@ -424,18 +622,168 @@ def describe_categorical_column(df: pd.DataFrame, df_name="selected_df_name"):
         else:
             st.caption("Validação automática de países limitada neste ambiente (pycountry não disponível).")
 
-        fig = px.choropleth(
-            full_counts.dropna(subset=["map_location"]),
-            locations="map_location",
-            # Com pycountry: ISO-3 (mais estável). Sem pycountry: nomes de países (mais sensível a variações).
-            locationmode="ISO-3" if has_pycountry else "country names",
-            color="frequencia",
-            hover_name="categoria",
-            color_continuous_scale="Blues_r",
-            labels={"frequencia": "Frequency"},
-            title=f"Distribuição por país: {selected_col}",
+        # Agrega por localização final para evitar múltiplas linhas no mesmo país
+        # (ex.: "Inglaterra" + "United Kingdom") sobrescrevendo a cor no mapa.
+        map_df = (
+            full_counts.dropna(subset=["map_location"])
+            .groupby("map_location", as_index=False)
+            .agg(
+                frequencia=("frequencia", "sum"),
+                pais_resolvido=("pais_resolvido", "first"),
+                categorias_origem=("categoria", lambda s: " | ".join(sorted(set(s.astype(str))))),
+            )
         )
-        fig.update_traces(colorbar_title="Frequency")
+
+        # Controle de leitura do mapa para reduzir efeito de outliers (ex.: 2000 vs 100-200).
+        density_mode = st.radio(
+            "Escala de densidade do mapa:",
+            [
+                "Contínua (linear)",
+                "Contínua (log10)",
+                "Faixas automáticas (quantis)",
+                "Faixas manuais",
+            ],
+            horizontal=True,
+            key=f"map_density_mode::{map_key_base}",
+        )
+
+        map_location_mode = "ISO-3" if has_pycountry else "country names"
+        map_labels = {
+            "frequencia": "Frequency",
+            "pais_resolvido": "Country",
+            "categorias_origem": "Categorias de origem",
+            "faixa_densidade": "Faixa de densidade",
+        }
+
+        if density_mode == "Contínua (linear)":
+            fig = px.choropleth(
+                map_df,
+                locations="map_location",
+                locationmode=map_location_mode,
+                color="frequencia",
+                hover_name="pais_resolvido",
+                hover_data={"categorias_origem": True, "map_location": True},
+                color_continuous_scale="Blues",
+                labels=map_labels,
+                title=f"Distribuição por país: {selected_col}",
+            )
+            fig.update_traces(colorbar_title="Frequency")
+        elif density_mode == "Contínua (log10)":
+            # Compressão logarítmica para reduzir dominância visual de países com valores muito altos.
+            import math
+            map_df_log = map_df.copy()
+            map_df_log["frequencia_log10"] = map_df_log["frequencia"].apply(lambda v: math.log10(v + 1))
+
+            fig = px.choropleth(
+                map_df_log,
+                locations="map_location",
+                locationmode=map_location_mode,
+                color="frequencia_log10",
+                hover_name="pais_resolvido",
+                hover_data={"frequencia": True, "categorias_origem": True, "map_location": True},
+                color_continuous_scale="Blues",
+                labels={**map_labels, "frequencia_log10": "log10(Frequency + 1)"},
+                title=f"Distribuição por país: {selected_col}",
+            )
+            fig.update_traces(colorbar_title="log10(Frequency + 1)")
+        else:
+            # Modos por faixas: gera categorias e aplica cor discreta por intervalo.
+            map_df_binned = map_df.copy()
+
+            if density_mode == "Faixas automáticas (quantis)":
+                n_bins_requested = st.slider(
+                    "Número de faixas:",
+                    min_value=3,
+                    max_value=7,
+                    value=5,
+                    key=f"map_density_bins::{map_key_base}",
+                )
+                n_unique = int(map_df_binned["frequencia"].nunique())
+                n_bins_effective = max(1, min(n_bins_requested, n_unique))
+
+                if n_bins_effective == 1:
+                    map_df_binned["faixa_densidade"] = "Faixa única"
+                    category_order = ["Faixa única"]
+                else:
+                    faixa_cat = pd.qcut(
+                        map_df_binned["frequencia"],
+                        q=n_bins_effective,
+                        duplicates="drop",
+                    )
+                    category_order = [str(c) for c in faixa_cat.cat.categories]
+                    map_df_binned["faixa_densidade"] = faixa_cat.astype(str)
+            else:
+                min_freq = int(map_df_binned["frequencia"].min())
+                max_freq = int(map_df_binned["frequencia"].max())
+                default_cut_values = sorted(
+                    {
+                        int(map_df_binned["frequencia"].quantile(0.25)),
+                        int(map_df_binned["frequencia"].quantile(0.50)),
+                        int(map_df_binned["frequencia"].quantile(0.75)),
+                    }
+                )
+                default_cut_values = [v for v in default_cut_values if min_freq < v < max_freq]
+                default_cut_text = ", ".join(str(v) for v in default_cut_values)
+
+                raw_cut_text = st.text_input(
+                    "Cortes (separados por vírgula). Ex.: 100, 300, 800",
+                    value=default_cut_text,
+                    key=f"map_density_manual_cuts::{map_key_base}",
+                )
+
+                parsed_values = []
+                parse_error = False
+                for piece in raw_cut_text.replace(";", ",").split(","):
+                    token = piece.strip()
+                    if not token:
+                        continue
+                    try:
+                        parsed_values.append(float(token))
+                    except ValueError:
+                        parse_error = True
+                        break
+
+                if parse_error:
+                    st.warning("Cortes manuais inválidos. Use apenas números separados por vírgula.")
+                    map_df_binned["faixa_densidade"] = "Faixa única"
+                    category_order = ["Faixa única"]
+                else:
+                    cut_values = sorted(set(v for v in parsed_values if min_freq < v < max_freq))
+                    bins = [float("-inf")] + cut_values + [float("inf")]
+                    faixa_cat = pd.cut(
+                        map_df_binned["frequencia"],
+                        bins=bins,
+                        include_lowest=True,
+                    )
+                    category_order = [str(c) for c in faixa_cat.cat.categories]
+                    map_df_binned["faixa_densidade"] = faixa_cat.astype(str)
+
+            if len(category_order) <= 1:
+                density_palette = [px.colors.sequential.Blues[-1]]
+            else:
+                # Evita tons muito claros no início para não "sumir" no fundo escuro.
+                density_palette = px.colors.sample_colorscale(
+                    "Blues",
+                    [0.20 + 0.75 * (i / (len(category_order) - 1)) for i in range(len(category_order))],
+                )
+            density_color_map = dict(zip(category_order, density_palette))
+            map_df_binned["faixa_densidade"] = pd.Categorical(
+                map_df_binned["faixa_densidade"],
+                categories=category_order,
+                ordered=True,
+            )
+
+            fig = px.choropleth(
+                map_df_binned,
+                locations="map_location",
+                locationmode=map_location_mode,
+                color="faixa_densidade",
+                hover_name="pais_resolvido",
+                hover_data={"frequencia": True, "categorias_origem": True, "map_location": True},
+                color_discrete_map=density_color_map,
+                labels=map_labels,
+                title=f"Distribuição por país: {selected_col}",
+            )
         fig.update_layout(
             template="plotly_dark",
             paper_bgcolor="#0E1117",
@@ -453,10 +801,12 @@ def describe_categorical_column(df: pd.DataFrame, df_name="selected_df_name"):
         # Mantém a tabela sincronizada com o que foi usado no mapa
         freq_df = full_counts[["categoria", "frequencia"]].copy()
         freq_df["percentual"] = (freq_df["frequencia"] / freq_df["frequencia"].sum() * 100).round(2)
+    # Cópia base para exportação (evita variação de estilo após renderização no Streamlit).
+    fig_export_base = pio.from_json(fig.to_json())
     st.plotly_chart(fig, use_container_width=True)
 
     # Download do gráfico em tema escuro e claro (HTML interativo)
-    fig_dark = pio.from_json(fig.to_json())
+    fig_dark = pio.from_json(fig_export_base.to_json())
     fig_dark.update_layout(
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
@@ -466,7 +816,7 @@ def describe_categorical_column(df: pd.DataFrame, df_name="selected_df_name"):
         fig_dark.update_geos(bgcolor="#0E1117")
     html_dark = fig_dark.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
 
-    fig_light = pio.from_json(fig.to_json())
+    fig_light = pio.from_json(fig_export_base.to_json())
     fig_light.update_layout(
         template="plotly_white",
         paper_bgcolor="white",
