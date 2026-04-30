@@ -113,10 +113,10 @@ def main():
     st.session_state["ml_selected_area"]   = area
     
     if area == "Aprendizado Não Supervisionado":
-        from modules.k_means import render_unsupervised  # import local (leve)
+        from modules.unsupervised import render_unsupervised  # import local (leve)
         render_unsupervised(df)
 
-    # ⬇️ NOVO: Supervisionado (Classificação)
+    # ⬇ NOVO: Supervisionado (Classificação)
     elif area == "Aprendizado Supervisionado":
         from modules.supervised import render_supervised_classification  # import local
         render_supervised_classification(df)
@@ -124,3 +124,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

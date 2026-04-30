@@ -755,3 +755,10 @@ def render_unsupervised(df: pd.DataFrame):
             st.warning("Mostrando o **resultado em cache** (parâmetros atuais diferem). "
                     "Clique em **Rodar K-Means** para atualizar.")
         _render_final_from_cache(df)
+
+def render_kmeans(df: pd.DataFrame):
+    """
+    Explicit alias for K-Means method.
+    Keeps compatibility with the previous flow.
+    """
+    render_unsupervised(df)
