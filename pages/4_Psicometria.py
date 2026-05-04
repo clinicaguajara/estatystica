@@ -49,6 +49,7 @@ def _patch_sklearn_check_array_compat():
 _patch_sklearn_check_array_compat()
 
 from factor_analyzer       import FactorAnalyzer, calculate_kmo, calculate_bartlett_sphericity
+from modules.efa_group_alignment import render_efa_group_alignment
 from utils.design          import load_css
 
 # CUSTOM FUNCTIONS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -65,6 +66,7 @@ def cronbach_alpha(df):
         return None
     alpha = (k / (k - 1)) * (1 - (variancias_itens.sum() / variancia_total))
     return round(alpha, 4)
+
 
 def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
     """Renderiza as propriedades psicométricas de uma escala ou fator selecionado."""
@@ -86,7 +88,72 @@ def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
     alvo = st.radio("Escolha o nível de análise:", opcoes_nivel, key="nivel_analise_radio")
 
     cols = escala_data["itens"] if alvo == "Escala Total" else fatores[alvo]["itens"]
-    df_target = df[cols].apply(pd.to_numeric, errors="coerce").dropna()
+
+    df_base = df
+    coluna_filtro = None
+    valores_selecionados = []
+    with st.expander("Filtro opcional da amostra (EFA/PCA/CFA)", expanded=False):
+        aplicar_filtro = st.checkbox(
+            "Aplicar filtro por coluna",
+            value=False,
+            key="psico_aplicar_filtro_amostra"
+        )
+
+        if aplicar_filtro:
+            coluna_filtro = st.selectbox(
+                "Coluna de filtro",
+                options=df.columns.tolist(),
+                key="psico_coluna_filtro_amostra"
+            )
+            serie_filtro = df[coluna_filtro]
+
+            freq_minima = st.number_input(
+                "Frequência mínima por categoria (0 desativa)",
+                min_value=0,
+                value=0,
+                step=1,
+                key="psico_frequencia_minima_filtro"
+            )
+
+            opcoes_valores = sorted(
+                pd.unique(serie_filtro.dropna()).tolist(),
+                key=lambda v: str(v)
+            )
+            limite_opcoes = 500
+            opcoes_exibidas = opcoes_valores[:limite_opcoes]
+            valores_selecionados = st.multiselect(
+                "Manter apenas estes valores (vazio = todos)",
+                options=opcoes_exibidas,
+                key="psico_valores_filtro_amostra"
+            )
+            if len(opcoes_valores) > limite_opcoes:
+                st.caption(
+                    f"Mostrando {limite_opcoes} de {len(opcoes_valores)} valores únicos da coluna."
+                )
+
+            mask = pd.Series(True, index=df.index)
+
+            if int(freq_minima) > 0:
+                freq = serie_filtro.value_counts(dropna=False)
+                categorias_validas = freq[freq >= int(freq_minima)].index
+                categorias_validas_sem_na = [v for v in categorias_validas if not pd.isna(v)]
+                mask_frequencia = serie_filtro.isin(categorias_validas_sem_na)
+                if any(pd.isna(v) for v in categorias_validas):
+                    mask_frequencia = mask_frequencia | serie_filtro.isna()
+                mask = mask & mask_frequencia
+
+            if valores_selecionados:
+                mask = mask & serie_filtro.isin(valores_selecionados)
+
+            df_base = df.loc[mask].copy()
+            st.caption(
+                f"N original: {df.shape[0]} | N após filtro: {df_base.shape[0]} | "
+                f"N removido: {df.shape[0] - df_base.shape[0]}"
+            )
+        else:
+            st.caption("Sem filtro adicional de amostra.")
+
+    df_target = df_base[cols].apply(pd.to_numeric, errors="coerce").dropna()
 
     if df_target.shape[1] < 2:
         st.warning("Selecione ao menos 2 itens numéricos para análises fatoriais.")
@@ -230,13 +297,12 @@ def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
             st.caption(f"Detalhe técnico: {exc}")
             return
 
-        st.dataframe(
-            pd.DataFrame(
-                fa_n.loadings_,
-                index=cols,
-                columns=[f"Fator {i+1}" for i in range(n_fatores)]
-            )
+        loadings_df = pd.DataFrame(
+            fa_n.loadings_,
+            index=cols,
+            columns=[f"Fator {i+1}" for i in range(n_fatores)]
         )
+        st.dataframe(loadings_df.round(2))
 
         try:
             variancia, proporcao, acumulada = fa_n.get_factor_variance()
@@ -253,6 +319,18 @@ def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
             )
         except Exception:
             pass
+
+        render_efa_group_alignment(
+            df_base=df_base,
+            cols=cols,
+            aplicar_filtro=aplicar_filtro,
+            coluna_filtro=coluna_filtro,
+            valores_selecionados=valores_selecionados,
+            n_fatores=n_fatores,
+            rotacao_ajustada=rotacao_ajustada,
+            metodo_extracao=metodo_extracao,
+            loadings_referencia=loadings_df,
+        )
 
     # === PCA ===
     elif metodo == "Componentes Principais (PCA)":
@@ -316,7 +394,7 @@ def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
             return
 
         itens_cfa = list(dict.fromkeys([item for itens in fatores_validos.values() for item in itens]))
-        df_cfa = df[itens_cfa].apply(pd.to_numeric, errors="coerce").dropna()
+        df_cfa = df_base[itens_cfa].apply(pd.to_numeric, errors="coerce").dropna()
 
         if df_cfa.shape[0] < 10:
             st.warning("Número de observações insuficiente para estimar CFA.")
@@ -351,7 +429,7 @@ def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
                 cfa.loadings_,
                 index=df_cfa.columns.tolist(),
                 columns=list(fatores_validos.keys())
-            )
+            ).round(2)
         )
 
         st.markdown("##### Covariância entre fatores")
@@ -477,226 +555,235 @@ if selected_df_name not in st.session_state["escalas"]:
 escalas_dict = st.session_state["escalas"][selected_df_name]
 
 
-rescale_items(df, selected_df_name)
-
-
-with st.expander("Inversão de itens", expanded=False):
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.caption(
-        "Selecione os itens cujos valores devem ser revertidos; "
-        "o sistema detecta automaticamente o valor máximo observado, exibe e permite reverter em lote."
-    )
-    
-    itens_reversos = st.multiselect(
-        "Itens a serem revertidos:",
-        options=df.columns.tolist(),
-        key="itens_para_reversao"
-    )
-
-    if itens_reversos:
-        # 1) detecta máximo observado em cada coluna
-        maximos_detectados = {item: int(df[item].max()) for item in itens_reversos}
-
-        # 2) exibe para o usuário
-        st.markdown("#### Máximos detectados para cada item:")
-        for item, max_val in maximos_detectados.items():
-            st.write(f"- `{item}`: {max_val}")
-
-        placeholder_invert =st.empty()
-
-        # 3) botão único para reverter tudo
-        if st.button(
-            "Reverter itens selecionados",
-            use_container_width=True,
-            key="btn_aplicar_reversao"
-        ):
-            for item, max_val in maximos_detectados.items():
-                df[item] = (max_val + 1) - df[item]
-            placeholder_invert.success(f"Reversão aplicada para {len(itens_reversos)} item(ns).")
-            st.session_state.dataframes[selected_df_name] = df
-            st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
-
-# ───────────────────────────────────────────────────────────
-st.subheader("Criar escala a partir de um conjunto de itens")
-st.caption("O somatório das novas escalas será mostrado e, opcionalmente, adicionado ao dataframe atual.")
-
-# 1) Escolha de itens e tipo de soma
-selected_cols = st.multiselect(
-    "Itens para compor a escala",
-    num_cols,
-    key="escala_itens"
-)
-sum_type = st.radio(
-    "Tipo de somatório:",
-    ["Normal", "Binário"],
+flow_mode = st.radio(
+    "Fluxo da pagina:",
+    ["Escalas e Fatores", "Propriedades Psicometricas"],
     horizontal=True,
-    key="escala_sum_type"
+    key="psico_page_flow_mode",
 )
+if flow_mode == "Escalas e Fatores":
+    rescale_items(df, selected_df_name)
 
-# 2) Threshold (apenas para binário)
-threshold = None
-if sum_type == "Binário" and selected_cols:
-    min_val = int(df[selected_cols].min().min())
-    max_val = int(df[selected_cols].max().max())
-    st.caption("Cada item com valor maior ou igual ao limiar (threshold) contribui com 1 ponto. Abaixo dele, ponto zero.")
-    threshold = st.number_input(
-        "Threshold:",
-        min_value=min_val,
-        max_value=max_val,
-        value=(min_val + max_val) // 2,
-        step=1,
-        format="%d",
-        key="escala_threshold"
-    )
 
-# 3) Nome da escala
-scale_name = st.text_input(
-    "Nome da nova escala:",
-    key="escala_nome"
-)
-
-# 4) Opção de salvar no df
-save_to_df = st.checkbox("Salvar a escala no dataframe atual", value=False, key="escala_save")
-
-placeholder_scales = st.empty()
-
-# 5) Criação
-if st.button("Criar escala", use_container_width=True):
-    # validações
-    if not selected_cols:
-        st.error("Selecione pelo menos um item.")
-    elif not scale_name:
-        st.error("Defina um nome para a escala.")
-    elif save_to_df and scale_name in df.columns:
-        st.error("Já existe uma coluna com esse nome.")
-    else:
-        # cálculo da série
-        if sum_type == "Normal":
-            new_series = df[selected_cols].sum(axis=1)
-        else:
-            new_series = (df[selected_cols] >= threshold).sum(axis=1)
-
-        # mostra na tela
-        st.write("#### Primeiro valores da escala criada:")
-        st.dataframe(new_series.to_frame(scale_name).head())
-
+    with st.expander("Inversão de itens", expanded=False):
         
-
-        # salva se pedido
-        if save_to_df:
-            df[scale_name] = new_series
-            st.session_state.dataframes[selected_df_name] = df
-            st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
-            placeholder_scales.success(f"Escala '{scale_name}' adicionada ao dataframe.")
-        else:
-            placeholder_scales.info(f"Escala '{scale_name}' salva na sessão.")
-
-        # guarda metadados sempre
-        escalas_dict[scale_name] = {
-            "itens": selected_cols,
-            "tipo": sum_type,
-            "threshold": threshold,
-            "valores": new_series.tolist(),
-            "fatores": {}
-        }
-
-        st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
-
-# ───────────────────────────────────────────────────────────
-# SEÇÃO 3 — DEFINIR FATORES EM UMA ESCALA
-# ───────────────────────────────────────────────────────────
-if escalas_dict:
-    st.subheader("Definir fatores")
-    escala_selecionada = st.selectbox(
-        "Escolha a escala-alvo",
-        list(escalas_dict.keys()),
-        key="escala_fator"
-    )
-    escala_data = escalas_dict[escala_selecionada]
-    todos_itens = escala_data["itens"]
-    fatores_atuais = escala_data.get("fatores", {})
-
-    with st.form("form_fator"):
-        nome_fator = st.text_input("Nome do novo fator", key="input_fator_nome")
-        itens_fator = st.multiselect(
-            "Itens que compõem este fator",
-            todos_itens,
-            key="multiselect_fator_itens"
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.caption(
+            "Selecione os itens cujos valores devem ser revertidos; "
+            "o sistema detecta automaticamente o valor máximo observado, exibe e permite reverter em lote."
         )
-        save_factor = st.checkbox(
-            "Salvar este fator no dataframe atual",
-            value=False,
-            key="save_fator_checkbox"
+        
+        itens_reversos = st.multiselect(
+            "Itens a serem revertidos:",
+            options=df.columns.tolist(),
+            key="itens_para_reversao"
         )
 
-        placehold_add_factor = st.empty()
-        criar_fator = st.form_submit_button(
-            "Adicionar fator",
-            use_container_width=True
-        )
-    
-    if criar_fator:
-        if not nome_fator or not itens_fator:
-            st.error("Preencha o nome do fator e selecione pelo menos um item.")
-        else:
-            # Calcula os valores do fator
-            valores_fator = df[itens_fator].sum(axis=1).tolist()
-            
-            # Armazena no dicionário interno
-            escala_data.setdefault("fatores", {})[nome_fator] = {
-                "itens": itens_fator,
-                "valores": valores_fator
-            }
+        if itens_reversos:
+            # 1) detecta máximo observado em cada coluna
+            maximos_detectados = {item: int(df[item].max()) for item in itens_reversos}
 
-            # Se o usuário marcou para salvar, cria a coluna no DataFrame
-            nome_coluna = f"{escala_selecionada}_{nome_fator}"
-            if save_factor:
-                df[nome_coluna] = valores_fator
+            # 2) exibe para o usuário
+            st.markdown("#### Máximos detectados para cada item:")
+            for item, max_val in maximos_detectados.items():
+                st.write(f"- `{item}`: {max_val}")
+
+            placeholder_invert =st.empty()
+
+            # 3) botão único para reverter tudo
+            if st.button(
+                "Reverter itens selecionados",
+                use_container_width=True,
+                key="btn_aplicar_reversao"
+            ):
+                for item, max_val in maximos_detectados.items():
+                    df[item] = (max_val + 1) - df[item]
+                placeholder_invert.success(f"Reversão aplicada para {len(itens_reversos)} item(ns).")
                 st.session_state.dataframes[selected_df_name] = df
                 st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
-                placehold_add_factor.success(
-                    f"Fator '{nome_fator}' adicionado e salvo como coluna '{nome_coluna}'."
-                )
+
+    # ───────────────────────────────────────────────────────────
+    st.subheader("Criar escala a partir de um conjunto de itens")
+    st.caption("O somatório das novas escalas será mostrado e, opcionalmente, adicionado ao dataframe atual.")
+
+    # 1) Escolha de itens e tipo de soma
+    selected_cols = st.multiselect(
+        "Itens para compor a escala",
+        num_cols,
+        key="escala_itens"
+    )
+    sum_type = st.radio(
+        "Tipo de somatório:",
+        ["Normal", "Binário"],
+        horizontal=True,
+        key="escala_sum_type"
+    )
+
+    # 2) Threshold (apenas para binário)
+    threshold = None
+    if sum_type == "Binário" and selected_cols:
+        min_val = int(df[selected_cols].min().min())
+        max_val = int(df[selected_cols].max().max())
+        st.caption("Cada item com valor maior ou igual ao limiar (threshold) contribui com 1 ponto. Abaixo dele, ponto zero.")
+        threshold = st.number_input(
+            "Threshold:",
+            min_value=min_val,
+            max_value=max_val,
+            value=(min_val + max_val) // 2,
+            step=1,
+            format="%d",
+            key="escala_threshold"
+        )
+
+    # 3) Nome da escala
+    scale_name = st.text_input(
+        "Nome da nova escala:",
+        key="escala_nome"
+    )
+
+    # 4) Opção de salvar no df
+    save_to_df = st.checkbox("Salvar a escala no dataframe atual", value=False, key="escala_save")
+
+    placeholder_scales = st.empty()
+
+    # 5) Criação
+    if st.button("Criar escala", use_container_width=True):
+        # validações
+        if not selected_cols:
+            st.error("Selecione pelo menos um item.")
+        elif not scale_name:
+            st.error("Defina um nome para a escala.")
+        elif save_to_df and scale_name in df.columns:
+            st.error("Já existe uma coluna com esse nome.")
+        else:
+            # cálculo da série
+            if sum_type == "Normal":
+                new_series = df[selected_cols].sum(axis=1)
             else:
-                placehold_add_factor.info(
-                    f"Fator '{nome_fator}' criado em memória, mas NÃO salvo no DataFrame."
-                )
+                new_series = (df[selected_cols] >= threshold).sum(axis=1)
 
+            # mostra na tela
+            st.write("#### Primeiro valores da escala criada:")
+            st.dataframe(new_series.to_frame(scale_name).head())
 
-# ───────────────────────────────────────────────────────────
-# SEÇÃO 4 — VISUALIZAR ESCALAS E FATORES
-# ───────────────────────────────────────────────────────────
-for nome, dados in escalas_dict.items():
-    st.markdown(f"### 🧮 Escala: **{nome}**")
-    st.markdown(f"Composta por: `{', '.join(dados['itens'])}`")
+            
 
-    fatores = dados.get("fatores", {})
+            # salva se pedido
+            if save_to_df:
+                df[scale_name] = new_series
+                st.session_state.dataframes[selected_df_name] = df
+                st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
+                placeholder_scales.success(f"Escala '{scale_name}' adicionada ao dataframe.")
+            else:
+                placeholder_scales.info(f"Escala '{scale_name}' salva na sessão.")
 
-    if fatores:
-        st.markdown("#### 📚 Fatores:")
-        for fator_nome, fator_info in list(fatores.items()):
-            with st.expander(f"{fator_nome}", expanded=False):
+            # guarda metadados sempre
+            escalas_dict[scale_name] = {
+                "itens": selected_cols,
+                "tipo": sum_type,
+                "threshold": threshold,
+                "valores": new_series.tolist(),
+                "fatores": {}
+            }
+
+            st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
+
+    # ───────────────────────────────────────────────────────────
+    # SEÇÃO 3 — DEFINIR FATORES EM UMA ESCALA
+    # ───────────────────────────────────────────────────────────
+    if escalas_dict:
+        st.subheader("Definir fatores")
+        escala_selecionada = st.selectbox(
+            "Escolha a escala-alvo",
+            list(escalas_dict.keys()),
+            key="escala_fator"
+        )
+        escala_data = escalas_dict[escala_selecionada]
+        todos_itens = escala_data["itens"]
+        fatores_atuais = escala_data.get("fatores", {})
+
+        with st.form("form_fator"):
+            nome_fator = st.text_input("Nome do novo fator", key="input_fator_nome")
+            itens_fator = st.multiselect(
+                "Itens que compõem este fator",
+                todos_itens,
+                key="multiselect_fator_itens"
+            )
+            save_factor = st.checkbox(
+                "Salvar este fator no dataframe atual",
+                value=False,
+                key="save_fator_checkbox"
+            )
+
+            placehold_add_factor = st.empty()
+            criar_fator = st.form_submit_button(
+                "Adicionar fator",
+                use_container_width=True
+            )
+        
+        if criar_fator:
+            if not nome_fator or not itens_fator:
+                st.error("Preencha o nome do fator e selecione pelo menos um item.")
+            else:
+                # Calcula os valores do fator
+                valores_fator = df[itens_fator].sum(axis=1).tolist()
                 
-                st.markdown("<br>", unsafe_allow_html=True)
-                st.markdown(f"**Itens:** `{', '.join(fator_info['itens'])}`")
+                # Armazena no dicionário interno
+                escala_data.setdefault("fatores", {})[nome_fator] = {
+                    "itens": itens_fator,
+                    "valores": valores_fator
+                }
 
-                delete = st.button(
-                    f"🗑️ Deletar fator",
-                    key=f"delete_fator_{nome}_{fator_nome}",
-                    use_container_width=True
-                )
-
-                if delete:
-                    del fatores[fator_nome]
-                    col_to_drop = f"{nome}_{fator_nome}"
-                    if col_to_drop in df.columns:
-                        df.drop(columns=[col_to_drop], inplace=True)
+                # Se o usuário marcou para salvar, cria a coluna no DataFrame
+                nome_coluna = f"{escala_selecionada}_{nome_fator}"
+                if save_factor:
+                    df[nome_coluna] = valores_fator
                     st.session_state.dataframes[selected_df_name] = df
-                    st.rerun()
+                    st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
+                    placehold_add_factor.success(
+                        f"Fator '{nome_fator}' adicionado e salvo como coluna '{nome_coluna}'."
+                    )
+                else:
+                    placehold_add_factor.info(
+                        f"Fator '{nome_fator}' criado em memória, mas NÃO salvo no DataFrame."
+                    )
 
 
-render_psychometric_properties(df, escalas_dict)
+    # ───────────────────────────────────────────────────────────
+    # SEÇÃO 4 — VISUALIZAR ESCALAS E FATORES
+    # ───────────────────────────────────────────────────────────
+    for nome, dados in escalas_dict.items():
+        st.markdown(f"### 🧮 Escala: **{nome}**")
+        st.markdown(f"Composta por: `{', '.join(dados['itens'])}`")
+
+        fatores = dados.get("fatores", {})
+
+        if fatores:
+            st.markdown("#### 📚 Fatores:")
+            for fator_nome, fator_info in list(fatores.items()):
+                with st.expander(f"{fator_nome}", expanded=False):
+                    
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.markdown(f"**Itens:** `{', '.join(fator_info['itens'])}`")
+
+                    delete = st.button(
+                        f"🗑️ Deletar fator",
+                        key=f"delete_fator_{nome}_{fator_nome}",
+                        use_container_width=True
+                    )
+
+                    if delete:
+                        del fatores[fator_nome]
+                        col_to_drop = f"{nome}_{fator_nome}"
+                        if col_to_drop in df.columns:
+                            df.drop(columns=[col_to_drop], inplace=True)
+                        st.session_state.dataframes[selected_df_name] = df
+                        st.rerun()
+
+
+
+else:
+    render_psychometric_properties(df, escalas_dict)
 
 st.divider()
 
