@@ -229,32 +229,64 @@ def batch_map_categorical_values(df_key_input="raw_df", df_key_output="numeric_d
     # Carrega o dataframe.
     df_original = st.session_state[df_key_input].copy()
 
-    # Filtra colunas categóricas.
-    categorical_columns = df_original.select_dtypes(include="object").columns.tolist()
-    if not categorical_columns:
-        st.info("Nenhuma coluna categórica encontrada.")
+    # Filtra colunas categoricas e, opcionalmente, colunas numericas discretas.
+    object_columns = df_original.select_dtypes(include=["object", "category"]).columns.tolist()
+    numeric_columns = df_original.select_dtypes(include="number").columns.tolist()
+
+    include_numeric_as_category = st.toggle(
+        "Incluir colunas numericas como categorias",
+        value=False,
+        key=f"map_include_numeric_{df_name}",
+    )
+
+    numeric_as_category_columns = []
+    if include_numeric_as_category and numeric_columns:
+        max_unique_default = min(10, max(2, len(df_original)))
+        max_unique_allowed = st.slider(
+            "Maximo de valores unicos por coluna numerica",
+            min_value=2,
+            max_value=max(2, len(df_original)),
+            value=max_unique_default,
+            key=f"map_numeric_max_unique_{df_name}",
+        )
+
+        for col in numeric_columns:
+            unique_count = df_original[col].dropna().nunique()
+            if 0 < unique_count <= max_unique_allowed:
+                numeric_as_category_columns.append(col)
+
+        if not numeric_as_category_columns:
+            st.info("Nenhuma coluna numerica discreta encontrada com esse limite.")
+
+    selectable_columns = [
+        col for col in df_original.columns if col in set(object_columns + numeric_as_category_columns)
+    ]
+
+    if not selectable_columns:
+        st.info("Nenhuma coluna categorica encontrada para mapeamento.")
         st.stop()
 
     # Seleciona colunas a serem mapeadas.
     selected_columns = st.multiselect(
         f"Selecione as colunas que você deseja mapear em **{df_name}**:",
-        categorical_columns
+        selectable_columns
     )
 
     # Se houver colunas selecionadas, permite criar o dicionário de mapeamento.
     if selected_columns:
-        unique_values = set()
+        unique_values = []
         for col in selected_columns:
-            unique_values.update(df_original[col].dropna().unique().tolist())
-
-        unique_values = sorted(unique_values)
+            for val in df_original[col].dropna().unique().tolist():
+                if val not in unique_values:
+                    unique_values.append(val)
 
         st.subheader("Defina o mapeamento numérico:")
         with st.form("batch_mapping_form"):
             value_map = {}
             for val in unique_values:
+                value_key = f"map_{type(val).__name__}_{str(val)}"
                 value_map[val] = st.number_input(
-                    f"'{val}' →", step=1, format="%d", key=f"map_{val}"
+                    f"'{val}' ->", step=1, format="%d", key=value_key
                 )
 
             placeholder_map = st.empty()

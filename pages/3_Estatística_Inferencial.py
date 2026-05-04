@@ -737,14 +737,24 @@ def density_by_category(df: pd.DataFrame):
     # 5) Dados por grupo
     grouped = df[[x_cat, y_num]].dropna()
     series, labels = [], []
+    invalid_labels = []
     for level, sub in grouped.groupby(x_cat, dropna=False):
         vals = pd.to_numeric(sub[y_num], errors="coerce").dropna().values
-        if len(vals) >= 2:
+        if len(vals) >= 2 and np.unique(vals).size >= 2:
             series.append(vals)
             labels.append(str(level))
+        elif len(vals) > 0:
+            invalid_labels.append(str(level))
 
     if not series:
-        st.info("Sem dados suficientes para estimar densidades.")
+        if invalid_labels:
+            st.warning(
+                "Sem dados suficientes para estimar densidades. "
+                "Algumas categorias têm menos de 2 valores distintos e não podem ser usadas em KDE: "
+                + ", ".join(invalid_labels)
+            )
+        else:
+            st.info("Sem dados suficientes para estimar densidades.")
         return
 
     # 6) Mapeamento cor→cluster (persistente)
@@ -803,14 +813,22 @@ def density_by_category(df: pd.DataFrame):
         bin_size = [None] * len(series)  # cria lista explícita
 
     # 8) Figura (tema escuro)
-    fig_dark = ff.create_distplot(
-        hist_data=series,
-        group_labels=labels,
-        bin_size=bin_size,
-        show_hist=show_hist,
-        show_rug=show_rug,
-        colors=color_list
-    )
+    try:
+        fig_dark = ff.create_distplot(
+            hist_data=series,
+            group_labels=labels,
+            bin_size=bin_size,
+            show_hist=show_hist,
+            show_rug=show_rug,
+            colors=color_list
+        )
+    except np.linalg.LinAlgError:
+        st.error(
+            "Não foi possível estimar KDE. "
+            "Os dados de uma ou mais categorias parecem ter variância zero ou estão em subespaço de baixa dimensão. "
+            "Tente outra variável numérica ou reduza a cardinalidade da variável categórica."
+        )
+        return
 
 
     fig_dark.update_layout(

@@ -11,6 +11,65 @@ def _clear_dbscan_cache():
     st.session_state.pop(DBSCAN_FINAL_KEY, None)
 
 
+def _knee_index_by_max_distance(x_values, y_values):
+    """
+    Heuristica simples de cotovelo: maior distancia perpendicular
+    ao segmento entre primeiro e ultimo ponto.
+    """
+    import numpy as np
+
+    x1, y1 = float(x_values[0]), float(y_values[0])
+    x2, y2 = float(x_values[-1]), float(y_values[-1])
+    dx, dy = (x2 - x1), (y2 - y1)
+    denom = float((dy**2 + dx**2) ** 0.5) if (dx != 0 or dy != 0) else 1.0
+
+    dists = []
+    for x, y in zip(x_values, y_values):
+        num = abs(dy * float(x) - dx * float(y) + (x2 * y1 - y2 * x1))
+        dists.append(num / denom)
+    return int(np.argmax(dists))
+
+
+def _build_kdistance_fig(sorted_k_distances, suggested_eps=None, current_eps=None, theme="dark"):
+    import matplotlib.pyplot as plt
+
+    dark_bg, white, purple = "#0E1117", "#FFFFFF", "#7159c1"
+    if theme == "dark":
+        bg, fg, grid = dark_bg, white, "#22262e"
+    else:
+        bg, fg, grid = "#FFFFFF", "#0E1117", "#e5e7eb"
+
+    fig, ax = plt.subplots(figsize=(6.8, 4.0), dpi=150)
+    fig.patch.set_facecolor(bg)
+    ax.set_facecolor(bg)
+
+    x_axis = list(range(1, len(sorted_k_distances) + 1))
+    ax.plot(x_axis, sorted_k_distances, linewidth=2.0, color=purple)
+    ax.set_xlabel("Pontos (ordenados por distancia k)", color=fg)
+    ax.set_ylabel("Distancia ao k-esimo vizinho", color=fg)
+    ax.set_title("k-distance (estimativa de eps)", color=fg, pad=10)
+
+    if suggested_eps is not None:
+        ax.axhline(float(suggested_eps), linestyle="--", color=fg, alpha=0.75)
+        ax.text(
+            x_axis[max(0, int(len(x_axis) * 0.02))],
+            float(suggested_eps),
+            f"  eps sugerido ~ {float(suggested_eps):.4f}",
+            va="bottom",
+            color=fg,
+        )
+
+    if current_eps is not None:
+        ax.axhline(float(current_eps), linestyle=":", color="#2ecc71", alpha=0.9)
+
+    ax.tick_params(colors=fg)
+    for spine in ax.spines.values():
+        spine.set_color(fg)
+    ax.grid(True, color=grid, alpha=0.4)
+    fig.tight_layout()
+    return fig
+
+
 def _save_dbscan_to_state(*, labels, used_index, cols, missing_strategy, scaler_choice, eps, min_samples, metric, algorithm, leaf_size, p_value):
     st.session_state[DBSCAN_FINAL_KEY] = {
         "labels": list(labels),
@@ -182,20 +241,112 @@ def render_dbscan(df: pd.DataFrame):
     else:
         p_value = None
 
+    try:
+        X_df, X_model, _ = prepare_feature_matrix(
+            df=df,
+            cols=cols,
+            missing_strategy=missing_strategy,
+            scaler_choice=scaler_choice,
+        )
+    except ValueError as e:
+        st.error(str(e))
+        return
+
+    st.markdown("#### Estimativa de eps (k-distance)")
+    n_samples = int(X_model.shape[0])
+    default_use_sample = n_samples > 4000
+
+    kcol1, kcol2 = st.columns(2)
+    with kcol1:
+        use_sample_for_kdist = st.checkbox(
+            "Amostrar pontos no k-distance",
+            value=default_use_sample,
+            key="ml_unsup_dbscan_kdist_use_sample",
+            help="Reduz custo de calculo em bases grandes.",
+        )
+    with kcol2:
+        if use_sample_for_kdist:
+            max_kdist_sample = max(500, min(n_samples, 20000))
+            default_kdist_sample = min(n_samples, 3000)
+            kdist_sample_size = st.number_input(
+                "Tamanho da amostra (k-distance)",
+                min_value=500,
+                max_value=max_kdist_sample,
+                value=max(500, default_kdist_sample),
+                step=250,
+                key="ml_unsup_dbscan_kdist_sample_size",
+            )
+        else:
+            kdist_sample_size = n_samples
+
+    # Amostra opcional para estimativa de eps
+    X_for_kdist = X_model
+    if use_sample_for_kdist and n_samples > int(kdist_sample_size):
+        import numpy as np
+
+        rng = np.random.default_rng(42)
+        idx = rng.choice(n_samples, size=int(kdist_sample_size), replace=False)
+        X_for_kdist = X_model[idx]
+
+    n_neighbors_kdist = min(max(2, int(min_samples)), int(X_for_kdist.shape[0]))
+    if int(min_samples) > int(X_for_kdist.shape[0]):
+        st.caption(
+            f"min_samples ajustado para {n_neighbors_kdist} no grafico k-distance "
+            f"(n da amostra = {int(X_for_kdist.shape[0])})."
+        )
+
+    from sklearn.neighbors import NearestNeighbors
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    nn_algorithm = algorithm
+    # Em alguns ambientes, cosine exige busca brute.
+    if metric == "cosine" and nn_algorithm in ("auto", "ball_tree", "kd_tree"):
+        nn_algorithm = "brute"
+
+    nn_kwargs = {
+        "n_neighbors": int(n_neighbors_kdist),
+        "algorithm": nn_algorithm,
+        "metric": metric,
+        "leaf_size": int(leaf_size),
+    }
+    if metric == "minkowski":
+        nn_kwargs["p"] = float(p_value if p_value is not None else 2.0)
+
+    try:
+        nbrs = NearestNeighbors(**nn_kwargs)
+        nbrs.fit(X_for_kdist)
+        distances, _ = nbrs.kneighbors(X_for_kdist)
+        kdist_values = np.sort(distances[:, -1].astype(float))
+
+        x_axis = np.arange(1, len(kdist_values) + 1, dtype=float)
+        knee_idx = _knee_index_by_max_distance(x_axis, kdist_values)
+        eps_sugerido = float(kdist_values[knee_idx]) if len(kdist_values) else None
+
+        fig_kdist = _build_kdistance_fig(
+            sorted_k_distances=kdist_values,
+            suggested_eps=eps_sugerido,
+            current_eps=float(eps),
+            theme="dark",
+        )
+        st.pyplot(fig_kdist, clear_figure=True)
+        plt.close(fig_kdist)
+
+        if eps_sugerido is not None:
+            st.caption(
+                f"eps sugerido pelo cotovelo: **{eps_sugerido:.4f}** "
+                f"(k = {n_neighbors_kdist}, amostra = {int(X_for_kdist.shape[0])})"
+            )
+            st.caption("Use esse valor como ponto de partida e ajuste conforme ruído/fragmentação.")
+    except Exception as e:
+        st.warning(
+            "Nao foi possivel calcular o k-distance com esta combinacao de parametros. "
+            f"Detalhe tecnico: {e}"
+        )
+
     run_dbscan = st.button("Rodar DBSCAN", use_container_width=True, key="ml_unsup_dbscan_run")
     if run_dbscan:
         from sklearn.cluster import DBSCAN
-
-        try:
-            X_df, X_model, _ = prepare_feature_matrix(
-                df=df,
-                cols=cols,
-                missing_strategy=missing_strategy,
-                scaler_choice=scaler_choice,
-            )
-        except ValueError as e:
-            st.error(str(e))
-            return
 
         _clear_dbscan_cache()
 
@@ -206,6 +357,9 @@ def render_dbscan(df: pd.DataFrame):
             "algorithm": algorithm,
             "leaf_size": int(leaf_size),
         }
+        if metric == "cosine" and db_kwargs["algorithm"] in ("auto", "ball_tree", "kd_tree"):
+            db_kwargs["algorithm"] = "brute"
+            st.caption("Ajuste automatico: metric='cosine' executado com algorithm='brute'.")
         if metric == "minkowski":
             db_kwargs["p"] = float(p_value if p_value is not None else 2.0)
 

@@ -3,8 +3,51 @@
 import streamlit         as st
 import pandas            as pd
 import matplotlib.pyplot as plt
+import inspect
 
 from sklearn.decomposition import PCA
+
+def _patch_sklearn_check_array_compat():
+    """
+    Compatibiliza assinaturas de check_array entre versões do scikit-learn.
+    Evita erros em bibliotecas de terceiros (ex.: factor_analyzer) quando há
+    divergência entre `force_all_finite` e `ensure_all_finite`.
+    """
+    try:
+        import sklearn.utils as sk_utils
+        import sklearn.utils.validation as sk_validation
+
+        original_check_array = sk_validation.check_array
+        params = inspect.signature(original_check_array).parameters
+        has_force = "force_all_finite" in params
+        has_ensure = "ensure_all_finite" in params
+        has_warn = "warn_on_dtype" in params
+
+        def check_array_compat(*args, **kwargs):
+            if "force_all_finite" in kwargs and not has_force:
+                if has_ensure:
+                    kwargs["ensure_all_finite"] = kwargs.pop("force_all_finite")
+                else:
+                    kwargs.pop("force_all_finite")
+
+            if "ensure_all_finite" in kwargs and not has_ensure:
+                if has_force:
+                    kwargs["force_all_finite"] = kwargs.pop("ensure_all_finite")
+                else:
+                    kwargs.pop("ensure_all_finite")
+
+            if "warn_on_dtype" in kwargs and not has_warn:
+                kwargs.pop("warn_on_dtype")
+
+            return original_check_array(*args, **kwargs)
+
+        sk_utils.check_array = check_array_compat
+        sk_validation.check_array = check_array_compat
+    except Exception:
+        pass
+
+_patch_sklearn_check_array_compat()
+
 from factor_analyzer       import FactorAnalyzer, calculate_kmo, calculate_bartlett_sphericity
 from utils.design          import load_css
 
@@ -14,10 +57,12 @@ def cronbach_alpha(df):
     """Calcula o alfa de Cronbach para um subconjunto de colunas numéricas."""
     df_corr = df.dropna().astype(float)
     k = df_corr.shape[1]
+    if k < 2:
+        return None
     variancias_itens = df_corr.var(axis=0, ddof=1)
     variancia_total = df_corr.sum(axis=1).var(ddof=1)
-    if variancia_total == 0:
-        return 0
+    if variancia_total == 0 or pd.isna(variancia_total):
+        return None
     alpha = (k / (k - 1)) * (1 - (variancias_itens.sum() / variancia_total))
     return round(alpha, 4)
 
@@ -41,7 +86,11 @@ def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
     alvo = st.radio("Escolha o nível de análise:", opcoes_nivel, key="nivel_analise_radio")
 
     cols = escala_data["itens"] if alvo == "Escala Total" else fatores[alvo]["itens"]
-    df_target = df[cols].dropna()
+    df_target = df[cols].apply(pd.to_numeric, errors="coerce").dropna()
+
+    if df_target.shape[1] < 2:
+        st.warning("Selecione ao menos 2 itens numéricos para análises fatoriais.")
+        return
 
     if df_target.shape[0] < 10:
         st.warning("Número de observações insuficiente para análise psicométrica robusta.")
@@ -49,32 +98,87 @@ def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
 
     # KMO e Bartlett
     st.subheader("Adequação da Amostra")
-    kmo_all, kmo_model = calculate_kmo(df_target)
-    chi_sq, p_value = calculate_bartlett_sphericity(df_target)
-    st.write(f"KMO: **{round(kmo_model, 4)}**")
-    st.write(f"Bartlett: χ² = `{chi_sq:.2f}`, valor-p = `{p_value:.4g}`")
+    try:
+        kmo_all, kmo_model = calculate_kmo(df_target)
+        chi_sq, p_value = calculate_bartlett_sphericity(df_target)
+        st.write(f"KMO: **{round(kmo_model, 4)}**")
+        st.write(f"Bartlett: χ² = `{chi_sq:.2f}`, valor-p = `{p_value:.4g}`")
 
-    if kmo_model >= 0.6 and p_value < 0.05:
-        st.success("Amostra adequada para extração fatorial.")
-    else:
-        st.warning("Amostra pode não ser adequada para extração fatorial.")
+        if kmo_model >= 0.6 and p_value < 0.05:
+            st.success("Amostra adequada para extração fatorial.")
+        else:
+            st.warning("Amostra pode não ser adequada para extração fatorial.")
+    except Exception as exc:
+        st.warning("Não foi possível calcular KMO/Bartlett com os itens selecionados.")
+        st.caption(f"Detalhe técnico: {exc}")
 
     # Alfa de Cronbach
     st.subheader("Consistência Interna")
     alpha = cronbach_alpha(df_target)
-    st.write(f"Alfa de Cronbach: **`{alpha}`**")
+    if alpha is None:
+        st.write("Alfa de Cronbach: **indisponível** (é necessário variabilidade e ao menos 2 itens).")
+    else:
+        st.write(f"Alfa de Cronbach: **`{alpha}`**")
 
     # Escolha de método
     st.subheader("Extração Fatorial")
     metodo = st.selectbox(
         "Tipo de análise:",
-        ["Nenhuma", "Análise Fatorial Exploratória (EFA)", "Componentes Principais (PCA)", "Fatorial Confirmatória (em breve)"],
+        ["Nenhuma", "Análise Fatorial Exploratória (EFA)", "Componentes Principais (PCA)", "Análise Fatorial Confirmatória (CFA)"],
         key="metodo_analise_select"
     )
 
     if metodo == "Análise Fatorial Exploratória (EFA)":
-        fa = FactorAnalyzer(rotation='varimax')
-        fa.fit(df_target)
+        metodos_extracao = {
+            "MINRES (padrão)": "minres",
+            "Máxima Verossimilhança (ML)": "ml",
+            "Principal": "principal"
+        }
+        rotacoes = {
+            "Sem rotação": None,
+            "Varimax": "varimax",
+            "Promax": "promax",
+            "Oblimin": "oblimin",
+            "Oblimax": "oblimax",
+            "Quartimin": "quartimin",
+            "Quartimax": "quartimax",
+            "Equamax": "equamax",
+            "Geomin (oblíqua)": "geomin_obl",
+            "Geomin (ortogonal)": "geomin_ort"
+        }
+
+        st.markdown("##### Configurações da EFA")
+        col_efa_1, col_efa_2 = st.columns(2)
+        with col_efa_1:
+            metodo_extracao_label = st.selectbox(
+                "Método de extração",
+                list(metodos_extracao.keys()),
+                index=0,
+                key="efa_metodo_extracao_select"
+            )
+        with col_efa_2:
+            rotacao_label = st.selectbox(
+                "Rotação",
+                list(rotacoes.keys()),
+                index=1,
+                key="efa_rotacao_select"
+            )
+
+        metodo_extracao = metodos_extracao[metodo_extracao_label]
+        rotacao = rotacoes[rotacao_label]
+
+        try:
+            # Ajuste inicial sem rotação apenas para extrair autovalores do scree plot.
+            fa = FactorAnalyzer(
+                n_factors=df_target.shape[1],
+                rotation=None,
+                method=metodo_extracao
+            )
+            fa.fit(df_target)
+        except Exception as exc:
+            st.error("A EFA falhou com os dados selecionados.")
+            st.caption(f"Detalhe técnico: {exc}")
+            return
         # Scree Plot com estilo escuro
         eigenvalues, _ = fa.get_eigenvalues()
         st.caption("""
@@ -105,10 +209,26 @@ def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
         st.pyplot(fig)
 
         # Slider e matriz
-        n_fatores = st.slider("Número de fatores", min_value=1, max_value=len(eigenvalues), value=1, step=1, key="slider_n_fatores")
+        max_fatores = min(len(eigenvalues), df_target.shape[1])
+        n_fatores = st.slider("Número de fatores", min_value=1, max_value=max_fatores, value=1, step=1, key="slider_n_fatores")
 
-        fa_n = FactorAnalyzer(n_factors=n_fatores, rotation='varimax')
-        fa_n.fit(df_target)
+        if n_fatores == 1 and rotacao is not None:
+            st.info("Com apenas 1 fator, a rotação não se aplica. O modelo será estimado sem rotação.")
+            rotacao_ajustada = None
+        else:
+            rotacao_ajustada = rotacao
+
+        try:
+            fa_n = FactorAnalyzer(
+                n_factors=n_fatores,
+                rotation=rotacao_ajustada,
+                method=metodo_extracao
+            )
+            fa_n.fit(df_target)
+        except Exception as exc:
+            st.error("Não foi possível estimar a solução EFA para o número de fatores escolhido.")
+            st.caption(f"Detalhe técnico: {exc}")
+            return
 
         st.dataframe(
             pd.DataFrame(
@@ -117,6 +237,22 @@ def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
                 columns=[f"Fator {i+1}" for i in range(n_fatores)]
             )
         )
+
+        try:
+            variancia, proporcao, acumulada = fa_n.get_factor_variance()
+            st.markdown("##### Variância explicada")
+            st.dataframe(
+                pd.DataFrame(
+                    {
+                        "Variância": variancia,
+                        "Proporção": proporcao,
+                        "Proporção acumulada": acumulada
+                    },
+                    index=[f"Fator {i+1}" for i in range(n_fatores)]
+                )
+            )
+        except Exception:
+            pass
 
     # === PCA ===
     elif metodo == "Componentes Principais (PCA)":
@@ -152,8 +288,89 @@ def render_psychometric_properties(df: pd.DataFrame, escalas_dict: dict):
 
 
 
-    elif metodo == "Fatorial Confirmatória (em breve)":
-        st.info("Este módulo será integrado futuramente com modelagem SEM.")
+    elif metodo == "Análise Fatorial Confirmatória (CFA)":
+        st.caption(
+            "A CFA testa uma estrutura fatorial previamente definida. "
+            "Nesta implementação, os fatores definidos na escala são usados como especificação do modelo."
+        )
+
+        if alvo == "Escala Total":
+            fatores_modelo = {nome: dados["itens"] for nome, dados in fatores.items()}
+        else:
+            fatores_modelo = {alvo: fatores[alvo]["itens"]}
+
+        if not fatores_modelo:
+            st.warning("Defina ao menos um fator na escala para executar CFA.")
+            return
+
+        fatores_validos = {}
+        for fator_nome, itens in fatores_modelo.items():
+            itens_unicos = [item for item in dict.fromkeys(itens) if item in df.columns]
+            if len(itens_unicos) < 2:
+                st.warning(f"O fator '{fator_nome}' precisa de pelo menos 2 itens para CFA.")
+                continue
+            fatores_validos[fator_nome] = itens_unicos
+
+        if not fatores_validos:
+            st.warning("Nenhum fator válido para CFA após as validações.")
+            return
+
+        itens_cfa = list(dict.fromkeys([item for itens in fatores_validos.values() for item in itens]))
+        df_cfa = df[itens_cfa].apply(pd.to_numeric, errors="coerce").dropna()
+
+        if df_cfa.shape[0] < 10:
+            st.warning("Número de observações insuficiente para estimar CFA.")
+            return
+
+        try:
+            from factor_analyzer import ConfirmatoryFactorAnalyzer, ModelSpecificationParser
+        except Exception as exc:
+            st.error("CFA indisponível no ambiente atual (módulo confirmatório não encontrado).")
+            st.caption(f"Detalhe técnico: {exc}")
+            return
+
+        try:
+            model_spec = ModelSpecificationParser.parse_model_specification_from_dict(
+                df_cfa,
+                fatores_validos
+            )
+            cfa = ConfirmatoryFactorAnalyzer(model_spec, disp=False)
+            cfa.fit(df_cfa.values)
+        except Exception as exc:
+            st.error("Falha ao estimar o modelo CFA com os fatores definidos.")
+            st.caption(f"Detalhe técnico: {exc}")
+            return
+
+        st.markdown("##### Especificação do modelo")
+        for fator_nome, itens in fatores_validos.items():
+            st.code(f"{fator_nome} =~ {' + '.join(itens)}", language="text")
+
+        st.markdown("##### Cargas fatoriais estimadas")
+        st.dataframe(
+            pd.DataFrame(
+                cfa.loadings_,
+                index=df_cfa.columns.tolist(),
+                columns=list(fatores_validos.keys())
+            )
+        )
+
+        st.markdown("##### Covariância entre fatores")
+        st.dataframe(
+            pd.DataFrame(
+                cfa.factor_varcovs_,
+                index=list(fatores_validos.keys()),
+                columns=list(fatores_validos.keys())
+            )
+        )
+
+        fit_info = {
+            "Log-likelihood": cfa.log_likelihood_,
+            "AIC": cfa.aic_,
+            "BIC": cfa.bic_,
+            "N observações": df_cfa.shape[0]
+        }
+        st.markdown("##### Ajuste do modelo")
+        st.dataframe(pd.DataFrame([fit_info]))
 
 def rescale_items(df: pd.DataFrame, selected_df_name: str):
     """
@@ -453,7 +670,6 @@ if escalas_dict:
 for nome, dados in escalas_dict.items():
     st.markdown(f"### 🧮 Escala: **{nome}**")
     st.markdown(f"Composta por: `{', '.join(dados['itens'])}`")
-    st.line_chart(dados["valores"])
 
     fatores = dados.get("fatores", {})
 
@@ -464,7 +680,6 @@ for nome, dados in escalas_dict.items():
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.markdown(f"**Itens:** `{', '.join(fator_info['itens'])}`")
-                st.line_chart(fator_info["valores"])
 
                 delete = st.button(
                     f"🗑️ Deletar fator",
