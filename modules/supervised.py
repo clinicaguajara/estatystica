@@ -73,7 +73,6 @@ def _get_model(name: str, class_weight: bool, C: float = 1.0, n_estimators: int 
             class_weight=weight,
             n_jobs=None,
             solver="lbfgs",
-            multi_class="auto",
         )
     if name == "Random Forest":
         return RandomForestClassifier(
