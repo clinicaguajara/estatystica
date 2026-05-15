@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 
 from pathlib import Path
 from io import BytesIO
@@ -42,6 +43,119 @@ def render_loaded_dataframes_overview(dataframes: dict):
         st.info("Nenhum dataframe dispon\u00edvel para an\u00e1lise.")
 
 
+def _mat_labels(value):
+    arr = np.asarray(value).squeeze()
+    if arr.ndim != 1 or arr.size == 0:
+        return None
+
+    labels = []
+    for item in arr:
+        item_arr = np.asarray(item).squeeze()
+        if isinstance(item, str):
+            label = item
+        elif item_arr.size == 1 and isinstance(item_arr.item(), str):
+            label = item_arr.item()
+        else:
+            label = str(item)
+        labels.append(label.strip())
+
+    if not all(labels):
+        return None
+    return labels
+
+
+def _unique_columns(columns):
+    seen = {}
+    unique = []
+    for column in columns:
+        base = str(column).strip() or "variavel"
+        count = seen.get(base, 0)
+        unique.append(base if count == 0 else f"{base}_{count + 1}")
+        seen[base] = count + 1
+    return unique
+
+
+def load_mat_dataframe(file):
+    from scipy.io import loadmat
+
+    try:
+        mat_data = loadmat(BytesIO(file.read()), squeeze_me=True, struct_as_record=False)
+    except NotImplementedError as exc:
+        raise ValueError(
+            "Este parece ser um arquivo MATLAB v7.3. Esse formato usa HDF5 e precisa "
+            "do pacote h5py para leitura."
+        ) from exc
+
+    variables = {
+        name: value
+        for name, value in mat_data.items()
+        if not name.startswith("__")
+    }
+    if not variables:
+        raise ValueError("Nenhuma vari\u00e1vel de dados foi encontrada no arquivo .mat.")
+
+    numeric_2d = []
+    numeric_1d = []
+    label_vectors = []
+
+    for name, value in variables.items():
+        arr = np.asarray(value).squeeze()
+
+        if arr.dtype.kind in "biufc" and arr.size:
+            if arr.ndim == 2:
+                numeric_2d.append((name, arr))
+            elif arr.ndim == 1:
+                numeric_1d.append((name, arr))
+            elif arr.ndim == 0:
+                numeric_1d.append((name, arr.reshape(1)))
+        else:
+            labels = _mat_labels(value)
+            if labels:
+                label_vectors.append((name, labels))
+
+    if numeric_2d:
+        main_name, main_arr = max(numeric_2d, key=lambda item: item[1].size)
+        n_rows, n_cols = main_arr.shape
+
+        columns = None
+        for label_name, labels in sorted(
+            label_vectors,
+            key=lambda item: ("label" not in item[0].lower() and "ch" not in item[0].lower(), item[0]),
+        ):
+            if len(labels) == n_cols:
+                columns = labels
+                break
+
+        if columns is None:
+            columns = [f"{main_name}_{idx + 1}" for idx in range(n_cols)]
+
+        df = pd.DataFrame(main_arr, columns=_unique_columns(columns))
+
+        leading_columns = []
+        for aux_name, aux_arr in numeric_1d:
+            if aux_arr.shape[0] == n_rows:
+                leading_columns.append((aux_name, aux_arr))
+
+        for aux_name, aux_arr in reversed(leading_columns):
+            df.insert(0, aux_name, aux_arr)
+
+        return df
+
+    if numeric_1d:
+        max_len = max(arr.shape[0] for _, arr in numeric_1d)
+        same_length_vectors = {
+            name: arr
+            for name, arr in numeric_1d
+            if arr.shape[0] == max_len
+        }
+        return pd.DataFrame(same_length_vectors)
+
+    raise ValueError(
+        "O arquivo .mat foi lido, mas n\u00e3o encontrei matriz ou vetor num\u00e9rico "
+        "que possa virar dataframe."
+    )
+
+
 if "dataframes" not in st.session_state:
     st.session_state["dataframes"] = {}
 
@@ -50,7 +164,7 @@ if "processed_files" not in st.session_state:
 
 uploaded_files = st.file_uploader(
     "Carregue um ou mais dataframes:",
-    type=["csv", "xls", "xlsx", "sav", "zsav"],
+    type=["csv", "xls", "xlsx", "sav", "zsav", "mat"],
     accept_multiple_files=True,
 )
 
@@ -88,6 +202,9 @@ if uploaded_files:
                             os.remove(tmp_path)
                         except Exception:
                             pass
+
+            elif suffix == ".mat":
+                df = load_mat_dataframe(file)
 
             else:
                 st.warning(f"Tipo de arquivo n\u00e3o suportado: {file.name}")

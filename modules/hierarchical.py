@@ -97,6 +97,11 @@ def render_hierarchical(df: pd.DataFrame):
             },
             "counts": pd.Series(labels).value_counts().sort_index().to_dict(),
             "X_model": X_model.tolist(),
+            "params": {
+                "n_clusters": int(n_clusters),
+                "linkage": str(linkage),
+                "metric": str(metric),
+            },
         }
         st.success("Hierarchical Clustering executado.")
 
@@ -117,6 +122,55 @@ def render_hierarchical(df: pd.DataFrame):
     counts.index = [f"cluster_{i}" for i in counts.index]
     st.write("#### Tamanho dos clusters")
     st.dataframe(counts.rename("n").to_frame(), use_container_width=True)
+
+    st.write("#### Dendrograma")
+    try:
+        import numpy as np
+        import matplotlib.pyplot as plt
+        from scipy.cluster.hierarchy import dendrogram, linkage as scipy_linkage
+
+        X_arr = np.array(cache["X_model"], dtype=float)
+        n_obs = int(X_arr.shape[0])
+        if n_obs < 2:
+            st.info("Nao ha observacoes suficientes para gerar o dendrograma.")
+        else:
+            params = cache.get("params", {})
+            linkage_used = str(params.get("linkage", "ward"))
+            metric_used = str(params.get("metric", "euclidean"))
+            metric_for_linkage = "euclidean" if linkage_used == "ward" else metric_used
+
+            z_matrix = scipy_linkage(X_arr, method=linkage_used, metric=metric_for_linkage)
+
+            max_leaves = min(60, n_obs)
+            is_truncated = n_obs > max_leaves
+            if is_truncated:
+                st.caption(f"Dendrograma truncado para {max_leaves} folhas para melhorar a leitura.")
+
+            fig, ax = plt.subplots(figsize=(10, 5))
+            dendro_kwargs = {
+                "ax": ax,
+                "leaf_rotation": 90.0,
+                "leaf_font_size": 8.0,
+            }
+            if is_truncated:
+                dendro_kwargs.update(
+                    {
+                        "truncate_mode": "lastp",
+                        "p": max_leaves,
+                        "show_leaf_counts": True,
+                    }
+                )
+            else:
+                dendro_kwargs.update({"no_labels": True})
+
+            dendrogram(z_matrix, **dendro_kwargs)
+            ax.set_title("Dendrograma Hierarquico")
+            ax.set_xlabel("Clusters agregados" if is_truncated else "Amostras")
+            ax.set_ylabel("Distancia")
+            plt.tight_layout()
+            st.pyplot(fig)
+    except Exception:
+        st.info("Nao foi possivel gerar o dendrograma.")
 
     try:
         import numpy as np

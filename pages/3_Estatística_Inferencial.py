@@ -6,6 +6,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import statsmodels.api as sm
+from utils.dataframe_state import select_active_dataframe
 from utils.design import load_css
 import plotly.express as px
 import plotly.graph_objects as go
@@ -901,15 +902,11 @@ A seção **Estatística Inferencial** permite investigar relações entre vari�
 Inclui cálculo dos coeficientes de **Pearson**, **Spearman** e **Kendall**, com valores-p para teste de significância, além de gráficos de dispersão e **regressão linear simples** com equações ajustadas e métricas como **R²** e valor-p do coeficiente. 
 """)
 
-# Verify dataframe
-if "dataframes" not in st.session_state or not st.session_state.dataframes:
-    st.warning("Este dataframe não possui colunas numéricas.")
-    st.stop()
-
-df_names = list(st.session_state.dataframes.keys())
-
-selected_df_name = st.selectbox("Selecione o dataframe para análise:", df_names)
-df = st.session_state.dataframes[selected_df_name]
+selected_df_name, df = select_active_dataframe(
+    state_key="selected_df_name",
+    label="Selecione o dataframe para análise:",
+    widget_key="inferencial_selected_df",
+)
 
 num_cols = df.select_dtypes(include="number").columns.tolist()
 if not num_cols:

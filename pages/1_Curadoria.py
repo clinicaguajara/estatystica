@@ -3,6 +3,7 @@
 import streamlit as st
 import pandas as pd
 
+from utils.dataframe_state import select_active_dataframe
 from utils.design import load_css
 
 # CUSTOM FUNCTIONS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -114,7 +115,6 @@ def remove_rows_with_repeated_value(df: pd.DataFrame, df_name: str):
                 df.drop(index=indices_repetidos, inplace=True)
                 df.reset_index(drop=True, inplace=True)
                 st.session_state.dataframes[df_name] = df
-                st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
                 placeholder_valor.success(f"{len(indices_repetidos)} linha(s) removida(s) com valor {valor_alvo} dominante.")
                           
         except Exception as e:
@@ -176,11 +176,8 @@ def delete_rows_or_columns(df: pd.DataFrame, df_name: str) -> pd.DataFrame:
                 if action == "Linhas":
                     df.drop(index=to_remove, inplace=True)
                     df.reset_index(drop=True, inplace=True)
-                    # atualiza CSV para download, se necessário
-                    st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
                 else:
                     df.drop(columns=to_remove, inplace=True)
-                    st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
 
                 # evita DataFrame sem colunas
                 if df.shape[1] == 0:
@@ -303,8 +300,6 @@ def batch_map_categorical_values(df_key_input="raw_df", df_key_output="numeric_d
             if df_key_input == df_key_output == "__temp_df_for_mapping__":
                 st.session_state.dataframes[df_name] = df_original
 
-            st.session_state["csv_transformado"] = df_original.to_csv(index=False).encode("utf-8")
-
             placeholder_map.success("Mapeamento aplicado com sucesso!")
             
             
@@ -353,7 +348,6 @@ def conditional_row_removal(df: pd.DataFrame, df_name: str):
                 df.drop(index=indices, inplace=True)
                 df.reset_index(drop=True, inplace=True)
                 st.session_state.dataframes[df_name] = df
-                st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
                 placeholder.success(f"{len(indices)} linha(s) removida(s).")
         except Exception as e:
             placeholder.error(f"Erro: {e}")
@@ -367,32 +361,17 @@ st.title("Curadoria de Dados")
 
 st.caption("""
 A seção de **curadoria** oferece ferramentas essenciais para limpeza e transformação de dados antes da análise estatística. 
-Permite remover linhas ou colunas manualmente, excluir registros com valores extremos, aplicar filtros condicionais e eliminar padrões de resposta redundantes (ex: repetições excessivas do mesmo valor).
+Permite remover linhas ou colunas manualmente, excluir registros com valores extremos e aplicar filtros condicionais.
 Também disponibiliza um sistema de **mapeamento categórico em lote**, que converte múltiplas variáveis qualitativas em códigos numéricos padronizados. 
 Ideal para garantir a qualidade e a consistência dos dados, preparando-os para análises psicométricas, estatísticas ou modelagens mais avançadas.
 """)
 
 
-# Verificação da presença de dataframes
-if "dataframes" not in st.session_state or not st.session_state.dataframes:
-    st.warning("Nenhum dataframe carregado.")
-    st.stop()
-
-# Seleção do dataframe para visualização
-df_names = list(st.session_state.dataframes.keys())
-
-# Verify dataframe
-if "dataframes" not in st.session_state or not st.session_state.dataframes:
-    st.warning("Este dataframe não possui colunas numéricas.")
-
-selected_df_name = st.session_state.get("selected_df_name")
-
-if selected_df_name not in df_names:
-    selected_df_name = df_names[0]
-
-
-selected_df_name = st.selectbox("Selecione o dataframe para análise:", df_names, index=df_names.index(selected_df_name))
-df = st.session_state.dataframes[selected_df_name]
+selected_df_name, df = select_active_dataframe(
+    state_key="selected_df_name",
+    label="Selecione o dataframe para análise:",
+    widget_key="curadoria_selected_df",
+)
 
 st.divider()
 
@@ -416,35 +395,34 @@ st.divider()
 remove_rows_with_repeated_value(df, selected_df_name)
 
 st.divider()
-if st.session_state.get("csv_transformado"):
-        st.write("### Baixar curadoria")
-        # Controle do número de linhas com incremento nativo
-        
-        st.write(f"**Dimensões:** {df.shape[0]} × {df.shape[1]}")
+st.write("### Baixar curadoria")
+# Controle do número de linhas com incremento nativo
 
-        num_rows = st.number_input(
-            "Número de linhas para inspeção visual:",
-            min_value=5,
-            max_value=100,
-            value=5,
-            step=5,
-            format="%d"
-        )
+st.write(f"**Dimensões:** {df.shape[0]} × {df.shape[1]}")
 
-        # Visualização do dataframe selecionado
-        df = st.session_state.dataframes[selected_df_name]
+num_rows = st.number_input(
+    "Número de linhas para inspeção visual:",
+    min_value=5,
+    max_value=100,
+    value=5,
+    step=5,
+    format="%d"
+)
 
-        # Verificação de integridade antes da renderização
-        if df is None or not isinstance(df, pd.DataFrame) or df.empty or df.shape[1] == 0:
-            st.warning(f"O dataframe '{selected_df_name}' está vazio ou inválido.")
-            st.stop()
+# Visualização do dataframe selecionado
+df = st.session_state.dataframes[selected_df_name]
 
-        st.write(f"Visualizando as primeiras {num_rows} linhas da curadoria:")
-        st.dataframe(df.head(num_rows), use_container_width=True)
-        st.download_button(
-            label="📥 Download (CSV)",
-            data=st.session_state["csv_transformado"],
-            file_name=f"{selected_df_name}_curado.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
+# Verificação de integridade antes da renderização
+if df is None or not isinstance(df, pd.DataFrame) or df.empty or df.shape[1] == 0:
+    st.warning(f"O dataframe '{selected_df_name}' está vazio ou inválido.")
+    st.stop()
+
+st.write(f"Visualizando as primeiras {num_rows} linhas da curadoria:")
+st.dataframe(df.head(num_rows), use_container_width=True)
+st.download_button(
+    label="📥 Download (CSV)",
+    data=df.to_csv(index=False).encode("utf-8"),
+    file_name=f"{selected_df_name}_curado.csv",
+    mime="text/csv",
+    use_container_width=True
+)

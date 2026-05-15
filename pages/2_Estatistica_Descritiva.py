@@ -3,6 +3,7 @@
 import streamlit as st
 
 from modules.descriptive_stats import describe_categorical_column, describe_numeric_column
+from utils.dataframe_state import select_active_dataframe
 from utils.design import load_css
 
 # PAGE 1 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -17,31 +18,11 @@ A seção **Estatísticas Descritivas** fornece uma análise detalhada da distri
 Também permite gerar gráficos interativos —histograma, boxplot e curvas de densidade.
 """)
 
-# Verify dataframe
-if "dataframes" not in st.session_state or not st.session_state.dataframes:
-    st.warning("Nenhum dataframe carregado.")
-    st.stop()
-
-# Seleção do dataframe para visualização
-df_names = list(st.session_state.dataframes.keys())
-
-if not df_names:
-    st.warning("Nenhum dataframe disponível.")
-    st.stop()
-
-selected_df_name = st.session_state.get("selected_df_name")
-
-if selected_df_name not in df_names:
-    selected_df_name = df_names[0]
-
-selected_df_name = st.selectbox(
-    "Selecione o dataframe para análise:",
-    df_names,
-    index=df_names.index(selected_df_name),
+selected_df_name, df = select_active_dataframe(
+    state_key="selected_df_name",
+    label="Selecione o dataframe para análise:",
+    widget_key="descriptive_selected_df",
 )
-st.session_state["selected_df_name"] = selected_df_name
-
-df = st.session_state.dataframes[selected_df_name]
 
 st.divider()
 

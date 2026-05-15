@@ -3,18 +3,12 @@
 import streamlit as st
 import pandas as pd
 
+from utils.dataframe_state import select_active_dataframe
+
 try:
     from utils.design import load_css  # opcional
 except Exception:
     load_css = None
-
-
-def get_available_dataframes() -> dict:
-    """
-    <docstrings>
-    Retorna o dicionário de dataframes disponíveis em st.session_state.dataframes.
-    """
-    return st.session_state.get("dataframes", {}) or {}
 
 
 def render_header():
@@ -27,25 +21,6 @@ def render_header():
         "Inteligência Artificial (IA) busca criar sistemas capazes de tomar decisões. "
         "Machine Learning (ML) é a subárea da IA que aprende padrões a partir de dados "
         "para prever ou decidir sem regras explícitas para cada tarefa."
-    )
-
-
-def render_dataset_selector(df_dict: dict) -> str | None:
-    """
-    <docstrings>
-    Exibe um seletor de DataFrame com base nos objetos já carregados na sessão.
-    """
-    if not df_dict:
-        st.warning(
-            "Nenhum DataFrame disponível na sessão. "
-            "Lembrete: o upload acontece apenas na **Page 0**."
-        )
-        return None
-
-    return st.selectbox(
-        "Selecione o dataframe para análise:",
-        list(df_dict.keys()),
-        key="ml_df_name"
     )
 
 
@@ -90,18 +65,17 @@ def main():
         except Exception:
             pass
 
-    df_dict = get_available_dataframes()
     render_header()
 
     # Desenha o seletor de grande área.
     area = render_area_selector()
-    df_name = render_dataset_selector(df_dict)
-    
-    if not df_name:
-        st.stop()
+    df_name, df = select_active_dataframe(
+        state_key="selected_df_name",
+        label="Selecione o dataframe para análise:",
+        widget_key="ml_selected_df",
+    )
 
-    df = df_dict.get(df_name)
-    if df is None or not isinstance(df, pd.DataFrame):
+    if not isinstance(df, pd.DataFrame):
         st.error("O objeto selecionado não é um DataFrame válido.")
         st.stop()
 

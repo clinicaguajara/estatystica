@@ -4,13 +4,14 @@
 
 ## Funcionalidades
 
-- Upload de arquivos `.csv`
+- Upload de arquivos `.csv`, `.xls`, `.xlsx`, `.sav`, `.zsav` e `.mat`
 - Estatísticas descritivas (média, mediana, moda, desvio padrão)
 - Testes de normalidade (Shapiro-Wilk, Kolmogorov-Smirnov)
 - Testes paramétricos (t de Student, ANOVA)
 - Testes não-paramétricos (Mann-Whitney, Kruskal-Wallis)
 - Correlações (Pearson, Spearman)
 - Regressão linear simples e múltipla
+- Visualização de sinais temporais multicanais, potência espectral e espectrograma
 - Interpretação textual dos resultados estatísticos (em português)
 - Exportação dos resultados (.csv ou .pdf)
 

@@ -50,6 +50,7 @@ _patch_sklearn_check_array_compat()
 
 from factor_analyzer       import FactorAnalyzer, calculate_kmo, calculate_bartlett_sphericity
 from modules.efa_group_alignment import render_efa_group_alignment
+from utils.dataframe_state import select_active_dataframe
 from utils.design          import load_css
 
 # CUSTOM FUNCTIONS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -510,7 +511,6 @@ def rescale_items(df: pd.DataFrame, selected_df_name: str):
                 placeholder_ajuste.success(f"Ajuste aplicado: {len(itens_ajuste)} item(ns) decrementados em -1.")
 
             st.session_state.dataframes[selected_df_name] = df
-            st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
 
 
 # PAGE 4 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -527,14 +527,11 @@ Também estão disponíveis métodos de análise fatorial como a **EFA** (Explor
 e, em breve, **CFA** (Confirmatória). Ideal para pesquisadores que desejam validar construtos latentes de forma empírica.
 """)
 
-# Verify dataframe
-if "dataframes" not in st.session_state or not st.session_state.dataframes:
-    st.warning("Nenhum dataframe carreagdo.")
-    st.stop()
-
-df_names = list(st.session_state.dataframes.keys())
-selected_df_name = st.selectbox("Selecione o dataframe para análise:", df_names)
-df = st.session_state.dataframes[selected_df_name]
+selected_df_name, df = select_active_dataframe(
+    state_key="selected_df_name",
+    label="Selecione o dataframe para análise:",
+    widget_key="psicometria_selected_df",
+)
 st.write(f"**Dimensões:** {df.shape[0]} × {df.shape[1]}")
 
 num_cols = df.select_dtypes(include="number").columns.tolist()
@@ -600,7 +597,6 @@ if flow_mode == "Escalas e Fatores":
                     df[item] = (max_val + 1) - df[item]
                 placeholder_invert.success(f"Reversão aplicada para {len(itens_reversos)} item(ns).")
                 st.session_state.dataframes[selected_df_name] = df
-                st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
 
     # ───────────────────────────────────────────────────────────
     st.subheader("Criar escala a partir de um conjunto de itens")
@@ -672,7 +668,6 @@ if flow_mode == "Escalas e Fatores":
             if save_to_df:
                 df[scale_name] = new_series
                 st.session_state.dataframes[selected_df_name] = df
-                st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
                 placeholder_scales.success(f"Escala '{scale_name}' adicionada ao dataframe.")
             else:
                 placeholder_scales.info(f"Escala '{scale_name}' salva na sessão.")
@@ -685,8 +680,6 @@ if flow_mode == "Escalas e Fatores":
                 "valores": new_series.tolist(),
                 "fatores": {}
             }
-
-            st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
 
     # ───────────────────────────────────────────────────────────
     # SEÇÃO 3 — DEFINIR FATORES EM UMA ESCALA
@@ -739,7 +732,6 @@ if flow_mode == "Escalas e Fatores":
                 if save_factor:
                     df[nome_coluna] = valores_fator
                     st.session_state.dataframes[selected_df_name] = df
-                    st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
                     placehold_add_factor.success(
                         f"Fator '{nome_fator}' adicionado e salvo como coluna '{nome_coluna}'."
                     )
@@ -787,10 +779,9 @@ else:
 
 st.divider()
 
-st.session_state["csv_transformado"] = df.to_csv(index=False).encode("utf-8")
 st.download_button(
     label="📥 Download (dataframe)",
-    data=st.session_state["csv_transformado"],
+    data=df.to_csv(index=False).encode("utf-8"),
     file_name=f"{selected_df_name}_curado.csv",
     mime="text/csv",
     use_container_width=True
